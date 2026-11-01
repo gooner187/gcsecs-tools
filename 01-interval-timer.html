@@ -1,1 +1,1262 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="Classroom interval timer with audio and visual alarms">
+<title>Interval Timer</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#181b22; --panel-2:#222631; --text:#f2f4f8; --muted:#9aa3b2; --line:#2e3340;
+  --track:#262b36; --disc:rgba(10,12,16,.86); --dot:#2a2f3b; --dialog:#181b22; --warn:#fbbf24;
+  --pause-bg:#e5e7eb; --pause-fg:#111111;
+  --accent:#22c55e; --danger:#ef4444;
+  --fc:#ffffff; --fp:1s;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#f4f5f7; --panel:#ffffff; --panel-2:#eceef2; --text:#14171c; --muted:#5b6472; --line:#d5d9e0;
+  --track:#e2e5ea; --disc:rgba(255,255,255,.92); --dot:#cfd4db; --dialog:#ffffff; --warn:#b45309;
+  --pause-bg:#1f2937; --pause-fg:#ffffff;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);transition:background-color .3s;color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  overflow:hidden;-webkit-tap-highlight-color:transparent;
+}
+button,input,select{font:inherit;color:inherit}
+
+/* ---------- flash overlay (sits behind the timer) ---------- */
+#flashLayer{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:0}
+body.fx-strobe #flashLayer{background:var(--fc);animation:fx-onoff var(--fp) steps(1,end) infinite}
+body.fx-redwhite #flashLayer{opacity:1;animation:fx-rw var(--fp) steps(1,end) infinite}
+body.fx-rainbow #flashLayer{opacity:.9;background:#ff3030;animation:fx-hue calc(var(--fp) * 4) linear infinite}
+body.fx-pulse #flashLayer{background:var(--fc);animation:fx-pulse calc(var(--fp) * 1.6) ease-in-out infinite}
+body.fx-border #flashLayer{box-shadow:inset 0 0 0 3.5vmin var(--fc),inset 0 0 14vmin var(--fc);animation:fx-onoff var(--fp) steps(1,end) infinite}
+body.fx-digits #time{animation:fx-digit var(--fp) steps(1,end) infinite}
+body.fx-digits #ring{animation:fx-ring var(--fp) steps(1,end) infinite}
+@keyframes fx-onoff{0%{opacity:1}50%{opacity:0}100%{opacity:0}}
+@keyframes fx-rw{0%{background:#ef4444}50%{background:#ffffff}100%{background:#ffffff}}
+@keyframes fx-hue{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(360deg)}}
+@keyframes fx-pulse{0%,100%{opacity:0}50%{opacity:.85}}
+@keyframes fx-digit{0%{opacity:1;color:var(--fc);transform:scale(1.06)}50%{opacity:.25;transform:scale(1)}100%{opacity:.25}}
+@keyframes fx-ring{0%{stroke:var(--fc)}50%{stroke:var(--ring)}100%{stroke:var(--ring)}}
+
+/* ---------- layout ---------- */
+#app{
+  position:relative;z-index:1;height:100%;height:100dvh;
+  display:grid;grid-template-columns:1fr;grid-template-rows:auto 1fr auto;
+  grid-template-areas:"top" "stage" "side";
+  gap:8px;
+  padding:max(10px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+}
+.top{grid-area:top;display:flex;align-items:center;gap:6px}
+.top h1{font-size:15px;font-weight:600;margin:0 auto 0 4px;color:var(--muted);letter-spacing:.02em}
+.icon-btn{
+  width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
+  display:grid;place-items:center;cursor:pointer;padding:0
+}
+.icon-btn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.icon-btn:active{transform:scale(.96)}
+
+.stage{grid-area:stage;display:grid;place-items:center;min-height:0}
+.dial{
+  position:relative;width:min(88vw,calc(100dvh - 230px));min-width:180px;aspect-ratio:1;
+  container-type:inline-size;border:0;background:none;padding:0;cursor:pointer;border-radius:50%
+}
+.dial svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
+#track{stroke:var(--track)}
+#ring{stroke:var(--ring,#22c55e);transition:stroke .4s linear}
+.dial.urgent #ring{filter:drop-shadow(0 0 6px var(--ring))}
+#disc{fill:var(--disc)}
+.readout{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2cqw;pointer-events:none;text-align:center}
+#time{font-size:18vmin;font-size:22cqw;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+#roundLabel{font-size:4vmin;font-size:6.2cqw;font-weight:600;color:var(--text);opacity:.9}
+#status{font-size:3.2vmin;font-size:4.4cqw;color:var(--muted);min-height:1.3em;padding:0 14cqw}
+body.alarm-on #status{color:var(--text);font-weight:600}
+#status.muted,body.alarm-on #status.muted{color:var(--warn);font-weight:600}
+
+.side{grid-area:side;display:flex;flex-direction:column;align-items:center;gap:14px}
+#dots{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:420px;min-height:12px}
+#dots span{width:12px;height:12px;border-radius:50%;background:var(--dot);border:2px solid transparent}
+#dots span.done{background:var(--muted)}
+#dots span.current{border-color:var(--ring,#22c55e);background:transparent}
+.controls{display:flex;gap:12px;align-items:center;justify-content:center;width:100%;max-width:440px}
+.btn{
+  min-height:56px;padding:0 18px;border-radius:16px;border:1px solid var(--line);background:var(--panel-2);
+  font-weight:600;font-size:17px;cursor:pointer;flex:1
+}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#06210f;flex:1.6;font-size:20px}
+.btn.primary.pause{background:var(--pause-bg);border-color:var(--pause-bg);color:var(--pause-fg)}
+.btn:not(:disabled):active{transform:scale(.97)}
+
+/* Full screen on phones: Chrome shows an "exit full screen" message along the bottom,
+   so keep the buttons clear of that strip. */
+body.fs-touch #app{padding-bottom:calc(max(16px, env(safe-area-inset-bottom)) + 84px)}
+@media (orientation:landscape) and (max-height:600px){
+  body.fs-touch #app{padding-bottom:max(16px, env(safe-area-inset-bottom))}
+  body.fs-touch .side{padding-bottom:72px;gap:8px}
+  body.fs-touch .controls{gap:8px}
+  body.fs-touch .btn{min-height:46px}
+}
+@media (orientation:landscape) and (max-height:600px){
+  #app{grid-template-columns:1fr minmax(240px,34vw);grid-template-rows:auto 1fr;grid-template-areas:"top top" "stage side"}
+  .dial{width:min(calc(100dvh - 90px),58vw)}
+  .side{justify-content:center}
+  .controls{flex-wrap:wrap}
+  .btn.primary{flex-basis:100%}
+}
+
+/* ---------- settings dialog ---------- */
+dialog{
+  background:var(--dialog);color:var(--text);border:1px solid var(--line);border-radius:18px;
+  width:min(560px,calc(100vw - 20px));max-height:calc(100dvh - 20px);padding:0;
+}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog form{display:flex;flex-direction:column;max-height:calc(100dvh - 22px)}
+/* Phone full screen: keep the Settings panel (and its Done / Test alarm buttons)
+   above the strip where Chrome shows its "exit full screen" message. */
+body.fs-touch dialog{margin:10px auto auto;max-height:calc(100dvh - 110px)}
+body.fs-touch dialog form{max-height:calc(100dvh - 112px)}
+@media (orientation:landscape) and (max-height:600px){
+  body.fs-touch dialog{margin-top:6px;max-height:calc(100dvh - 96px)}
+  body.fs-touch dialog form{max-height:calc(100dvh - 98px)}
+  body.fs-touch .dlg-head,body.fs-touch .dlg-foot{padding-top:8px;padding-bottom:8px}
+  body.fs-touch .dlg-foot .btn{min-height:42px}
+}
+.dlg-head,.dlg-foot{display:flex;align-items:center;gap:10px;padding:14px 16px;border-color:var(--line)}
+.dlg-head{border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0 auto 0 0;font-size:19px}
+.dlg-foot{border-top:1px solid var(--line)}
+.dlg-body{overflow-y:auto;padding:4px 16px 12px}
+.dlg-body section{padding:12px 0;border-bottom:1px solid var(--line)}
+.dlg-body section:last-child{border-bottom:0}
+.dlg-body h3{margin:4px 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px}
+.row>label{flex:1}
+.row input[type=number],.row input[type=text],.row select{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;height:42px;padding:0 10px;font-size:16px
+}
+.row input[type=number]{width:72px;text-align:center}
+.row input[type=text]{width:150px}
+.row select{max-width:210px;min-width:0;flex:0 1 auto}
+.row input[type=range]{width:170px;accent-color:var(--accent)}
+.row input[type=color]{width:56px;height:40px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);padding:3px}
+.row input[type=checkbox]{width:24px;height:24px;accent-color:var(--accent)}
+.row input:disabled{opacity:.4}
+.dur{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.inline{display:flex;gap:8px;align-items:center;min-width:0}
+.inline select{max-width:170px;min-width:0}
+.small-btn{height:42px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);cursor:pointer;font-weight:600}
+.note{font-size:13px;color:var(--muted);margin:6px 0 0;line-height:1.4}
+.note.warn{color:var(--warn)}
+.dlg-foot .btn{min-height:48px;font-size:16px}
+.custom-box{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:4px 0 6px}
+.custom-box .row{flex-direction:column;align-items:stretch;gap:8px;min-height:0}
+.custom-box .row>span{font-weight:600}
+.custom-box .inline .small-btn{flex:1;white-space:nowrap}
+.custom-box .note{margin-top:4px}
+.row.stack{flex-direction:column;align-items:stretch;gap:6px;padding:6px 0}
+.row.stack input[type=text]{width:100%}
+dialog.dragging{outline:3px dashed var(--accent);outline-offset:-8px}
+</style>
+</head>
+<body>
+<div id="flashLayer" aria-hidden="true"></div>
+
+<main id="app">
+  <div class="top">
+    <h1>Interval Timer</h1>
+    <button class="icon-btn" id="testBtn" type="button" aria-label="Test alarm" title="Test alarm">
+      <svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+    </button>
+    <button class="icon-btn" id="fsBtn" type="button" aria-label="Full screen" title="Full screen">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5"/><path d="M15 4h5v5"/><path d="M20 15v5h-5"/><path d="M9 20H4v-5"/></svg>
+    </button>
+    <button class="icon-btn" id="setBtn" type="button" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h4"/><path d="M12 12h8"/><circle cx="10" cy="12" r="2"/><path d="M4 18h12"/><path d="M20 18h0"/><circle cx="18" cy="18" r="2"/></svg>
+    </button>
+  </div>
+
+  <div class="stage">
+    <button class="dial" id="dial" type="button" aria-label="Timer">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <circle id="disc" cx="100" cy="100" r="81"/>
+        <circle id="track" cx="100" cy="100" r="88" fill="none" stroke-width="14"/>
+        <circle id="ring" cx="100" cy="100" r="88" fill="none" stroke-width="14" stroke-linecap="round"/>
+      </svg>
+      <div class="readout">
+        <div id="time">10:00</div>
+        <div id="roundLabel">Round 1 of 5</div>
+        <div id="status">Press Start</div>
+      </div>
+    </button>
+  </div>
+
+  <div class="side">
+    <div id="dots" aria-hidden="true"></div>
+    <div class="controls">
+      <button class="btn" id="resetBtn" type="button">Reset</button>
+      <button class="btn primary" id="startBtn" type="button">Start</button>
+      <button class="btn" id="skipBtn" type="button" title="End this round now">Skip</button>
+    </div>
+  </div>
+</main>
+
+<dialog id="settings" aria-labelledby="setTitle">
+  <form id="setForm" novalidate>
+    <div class="dlg-head">
+      <h2 id="setTitle">Settings</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="dlg-body">
+      <section>
+        <h3>Timer</h3>
+        <div class="row">
+          <label for="mins">Round length</label>
+          <div class="dur">
+            <input id="mins" type="number" min="0" max="99" inputmode="numeric" aria-label="Minutes"> min
+            <input id="secs" type="number" min="0" max="59" inputmode="numeric" aria-label="Seconds"> sec
+          </div>
+        </div>
+        <div class="row">
+          <label for="rounds">Number of rounds</label>
+          <input id="rounds" type="number" min="1" max="50" inputmode="numeric">
+        </div>
+        <div class="row">
+          <label for="label">Call each round</label>
+          <input id="label" type="text" maxlength="16" placeholder="Round">
+        </div>
+        <p class="note warn" id="lockNote" hidden>Reset the timer to change the round length or number of rounds.</p>
+        <div class="row">
+          <label for="redAt">Circle turns red with</label>
+          <select id="redAt">
+            <option value="15">15 seconds left</option>
+            <option value="30">30 seconds left</option>
+            <option value="60">1 minute left</option>
+            <option value="120">2 minutes left</option>
+            <option value="180">3 minutes left</option>
+          </select>
+        </div>
+      </section>
+
+      <section>
+        <h3>Alarm sound</h3>
+        <div class="row">
+          <label for="sound">Sound</label>
+          <div class="inline">
+            <select id="sound"></select>
+            <button type="button" class="small-btn" id="previewBtn">Play</button>
+          </div>
+        </div>
+        <div class="custom-box" id="customRow" hidden>
+          <div class="row">
+            <span>Your sound file</span>
+            <div class="inline">
+              <button type="button" class="small-btn" id="chooseFile">Choose file…</button>
+              <button type="button" class="small-btn" id="removeFile" hidden>Remove</button>
+            </div>
+          </div>
+          <p class="note" id="customInfo" aria-live="polite"></p>
+          <p class="note" id="dropHint" hidden>On a computer you can also drag a sound file onto this panel.</p>
+          <input type="file" id="fileInput" accept=".mp3,.wav,.m4a,.ogg,audio/*" hidden>
+        </div>
+        <div class="row">
+          <label for="volume">Volume</label>
+          <input id="volume" type="range" min="0" max="100" step="5">
+        </div>
+        <div class="row">
+          <label for="alarmSecs">Alarm and flash last for (seconds)</label>
+          <input id="alarmSecs" type="number" min="1" max="60" inputmode="numeric">
+        </div>
+        <p class="note">On a phone the sound follows media volume, not the ringer volume.</p>
+      </section>
+
+      <section id="speechSection">
+        <h3>Spoken message</h3>
+        <div class="row">
+          <label for="speakMode">Read a message aloud</label>
+          <select id="speakMode">
+            <option value="off">Off</option>
+            <option value="voice">Voice only</option>
+            <option value="soundvoice">Sound, then voice</option>
+          </select>
+        </div>
+        <div id="speechFields">
+          <div class="row stack">
+            <label for="speakText">Message</label>
+            <input id="speakText" type="text" maxlength="200" placeholder="Time's up">
+          </div>
+          <div class="row">
+            <label for="speakTimes">Say it</label>
+            <div class="dur"><input id="speakTimes" type="number" min="1" max="10" inputmode="numeric"> <span id="timesWord">time</span></div>
+          </div>
+          <div class="row">
+            <label for="voice">Voice</label>
+            <select id="voice"></select>
+          </div>
+          <div class="row">
+            <label for="speakRate">Speed</label>
+            <select id="speakRate">
+              <option value="0.8">Slower</option>
+              <option value="1">Normal</option>
+              <option value="1.2">Faster</option>
+            </select>
+          </div>
+          <div class="row">
+            <span></span>
+            <button type="button" class="small-btn" id="hearBtn">Hear it</button>
+          </div>
+          <p class="note" id="speechNote"></p>
+        </div>
+        <p class="note warn" id="noSpeech" hidden>This browser can’t read messages aloud, so the alarm sound will play instead.</p>
+      </section>
+
+      <section>
+        <h3>Flash</h3>
+        <div class="row">
+          <label for="flash">Flash style</label>
+          <select id="flash">
+            <option value="pulse">Slow pulse (gentle)</option>
+            <option value="strobe">Full-screen flash</option>
+            <option value="redwhite">Red / white</option>
+            <option value="rainbow">Rainbow cycle</option>
+            <option value="border">Screen edges only</option>
+            <option value="digits">Digits and circle only</option>
+            <option value="none">No flash</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="flashColor">Flash colour</label>
+          <input id="flashColor" type="color">
+        </div>
+        <div class="row">
+          <label for="flashSpeed">Flash speed</label>
+          <select id="flashSpeed">
+            <option value="slow">Slow (1 per second)</option>
+            <option value="medium">Medium (2 per second)</option>
+            <option value="fast">Fast (under 3 per second)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="vibrate">Vibrate phone with alarm</label>
+          <input id="vibrate" type="checkbox">
+        </div>
+        <p class="note warn" id="flashWarn" hidden>This flash colour is hard to see against your background. Pick a different flash colour.</p>
+        <p class="note">Flashing is kept below 3 flashes per second, in line with photosensitive epilepsy guidance.</p>
+      </section>
+
+      <section>
+        <h3>Appearance</h3>
+        <div class="row">
+          <label for="theme">Background</label>
+          <select id="theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">Match phone setting</option>
+            <option value="custom">Any colour</option>
+          </select>
+        </div>
+        <div class="row" id="bgRow">
+          <label for="bgColor">Background colour</label>
+          <input id="bgColor" type="color">
+        </div>
+        <p class="note">Text and buttons switch between dark and light automatically so they stay readable.</p>
+      </section>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn" id="testBtn2">Test alarm</button>
+      <button type="button" class="btn primary" data-close>Done</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+
+  /* ================= settings ================= */
+  const DEFAULTS = {
+    mins: 10, secs: 0, rounds: 5, label: 'Round', redAt: 60,
+    sound: 'beep', volume: 80, alarmSecs: 8,
+    flash: 'pulse', flashColor: '#ffffff', flashSpeed: 'slow', vibrate: true,
+    theme: 'dark', bgColor: '#1e3a8a',
+    speakMode: 'off', speakText: "Time's up", speakTimes: 1, voiceURI: '', speakRate: 1
+  };
+  const KEY = 'intervalTimer.v1';
+  const SPEEDS = { slow: 1, medium: 0.5, fast: 0.36 }; // period in seconds (max 2.8 flashes/s)
+
+  function loadCfg() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
+      return Object.assign({}, DEFAULTS, saved);
+    } catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  function saveCfg() {
+    try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) { /* storage unavailable */ }
+  }
+  let cfg = loadCfg();
+  const roundSecs = () => Math.max(5, cfg.mins * 60 + cfg.secs);
+  const durMs = () => roundSecs() * 1000;
+
+  /* ================= audio ================= */
+  let ctx = null, master = null, alarmSound = null;
+
+  function getCtx() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      const comp = ctx.createDynamicsCompressor();
+      master = ctx.createGain();
+      master.connect(comp);
+      comp.connect(ctx.destination);
+    }
+    return ctx;
+  }
+  function ensureAudio() {
+    try {
+      if (!getCtx()) return false;
+      if (ctx.state === 'suspended') ctx.resume();
+      applyVolume();
+      return true;
+    } catch (e) { return false; }
+  }
+  function applyVolume() {
+    if (!master) return;
+    const v = Math.pow(cfg.volume / 100, 2) * 1.5;
+    master.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
+  }
+
+  // One oscillator note with an envelope.
+  function tone(bus, t, o) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    const d = o.d, v = o.v != null ? o.v : 0.2, a = o.a != null ? o.a : 0.005;
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.f, t);
+    if (o.f2) osc.frequency.linearRampToValueAtTime(o.f2, t + d);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(v, t + a);
+    if (o.decay) {
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    } else {
+      const r = Math.min(o.r != null ? o.r : 0.02, d / 3);
+      g.gain.setValueAtTime(v, t + d - r);
+      g.gain.linearRampToValueAtTime(0.0001, t + d);
+    }
+    let node = osc;
+    if (o.lp) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = o.lp;
+      osc.connect(f); node = f;
+    }
+    node.connect(g); g.connect(bus);
+    osc.start(t); osc.stop(t + d + 0.05);
+  }
+
+  function chimeNote(bus, t, f, d) {
+    d = d || 1.8;
+    tone(bus, t, { f: f, d: d, v: 0.3, decay: true });
+    tone(bus, t, { f: f * 2.01, d: d * 0.6, v: 0.1, decay: true });
+    tone(bus, t, { f: f * 3, d: d * 0.3, v: 0.05, decay: true });
+  }
+  function marimbaNote(bus, t, f) {
+    tone(bus, t, { f: f, d: 0.5, v: 0.32, decay: true });
+    tone(bus, t, { f: f * 4, d: 0.08, v: 0.06, decay: true });
+  }
+  function schoolBell(bus, t, d) {
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(0.2, t + 0.01);
+    env.gain.setValueAtTime(0.2, t + d - 0.06);
+    env.gain.linearRampToValueAtTime(0.0001, t + d);
+    // Tremolo: a falling sawtooth gives a "strike then decay" at ~24 strikes/sec
+    const trem = ctx.createGain(); trem.gain.value = 0.5;
+    const lfo = ctx.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 24;
+    const lfoG = ctx.createGain(); lfoG.gain.value = -0.5;
+    lfo.connect(lfoG); lfoG.connect(trem.gain);
+    trem.connect(env); env.connect(bus);
+    [[1210, 1], [2980, 0.5], [4400, 0.3], [6100, 0.15]].forEach(([f, v]) => {
+      const o = ctx.createOscillator(); o.frequency.value = f;
+      const g = ctx.createGain(); g.gain.value = v;
+      o.connect(g); g.connect(trem);
+      o.start(t); o.stop(t + d + 0.05);
+    });
+    lfo.start(t); lfo.stop(t + d + 0.05);
+  }
+
+  // Each sound schedules one cycle starting at time t and returns the cycle length in seconds.
+  const SOUNDS = {
+    beep: { name: 'Classic beep-beep', play: (b, t) => {
+      for (let i = 0; i < 4; i++) tone(b, t + i * 0.2, { f: 880, type: 'square', d: 0.1, v: 0.2, lp: 4000 });
+      return 1.3;
+    } },
+    digital: { name: 'Digital alarm clock', play: (b, t) => {
+      for (let i = 0; i < 4; i++) tone(b, t + i * 0.1, { f: 2093, type: 'square', d: 0.05, v: 0.13, lp: 6000 });
+      return 0.9;
+    } },
+    bell: { name: 'School bell', play: (b, t) => { schoolBell(b, t, 2.0); return 2.6; } },
+    siren: { name: 'Siren', play: (b, t) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = 'sawtooth'; f.type = 'lowpass'; f.frequency.value = 2500;
+      o.frequency.setValueAtTime(600, t);
+      o.frequency.linearRampToValueAtTime(1250, t + 1.1);
+      o.frequency.linearRampToValueAtTime(600, t + 2.2);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.14, t + 0.03);
+      g.gain.setValueAtTime(0.14, t + 2.17);
+      g.gain.linearRampToValueAtTime(0.0001, t + 2.2);
+      o.connect(f); f.connect(g); g.connect(b);
+      o.start(t); o.stop(t + 2.25);
+      return 2.2;
+    } },
+    dingdong: { name: 'Ding-dong chime', play: (b, t) => {
+      chimeNote(b, t, 659.25); chimeNote(b, t + 0.65, 523.25);
+      return 2.6;
+    } },
+    buzzer: { name: 'Game-show buzzer', play: (b, t) => {
+      tone(b, t, { f: 110, type: 'sawtooth', d: 0.9, v: 0.2, lp: 1800 });
+      tone(b, t, { f: 116, type: 'square', d: 0.9, v: 0.08, lp: 1800 });
+      return 1.4;
+    } },
+    airhorn: { name: 'Air horn', play: (b, t) => {
+      [233, 349, 466].forEach((f) => tone(b, t, { f: f, type: 'sawtooth', d: 0.8, v: 0.1, a: 0.02, r: 0.08, lp: 3000 }));
+      return 1.2;
+    } },
+    rising: { name: 'Rising tones', play: (b, t) => {
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
+        tone(b, t + i * 0.13, { f: f, type: 'triangle', d: i === 3 ? 0.45 : 0.12, v: 0.25 }));
+      return 1.3;
+    } },
+    marimba: { name: 'Gentle marimba', play: (b, t) => {
+      [783.99, 659.25, 523.25, 659.25, 783.99, 1046.5].forEach((f, i) => marimbaNote(b, t + i * 0.17, f));
+      return 1.6;
+    } },
+    custom: { name: 'My own sound…', play: (b, t, s) => {
+      if (!custom.buffer) return SOUNDS.beep.play(b, t); // nothing chosen yet
+      const src = ctx.createBufferSource();
+      src.buffer = custom.buffer;
+      src.connect(b);
+      src.start(t);
+      if (s) s.srcs.push(src);
+      const d = custom.buffer.duration;
+      return d + (d < 2 ? 0.25 : 0); // tiny gap between repeats of very short clips
+    } }
+  };
+
+  /* ---------- the user's own sound file (kept in this browser only) ---------- */
+  const MAX_BYTES = 10 * 1024 * 1024;
+  let custom = { name: '', buffer: null, rec: null, saved: true, error: '', loading: false };
+  const DB_NAME = 'intervalTimer', STORE = 'files', SOUND_KEY = 'customSound';
+
+  function openDb() {
+    return new Promise((res, rej) => {
+      if (!window.indexedDB) { rej(new Error('IndexedDB unavailable')); return; }
+      const r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  async function dbRun(mode, fn) {
+    const db = await openDb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, mode);
+      const req = fn(tx.objectStore(STORE));
+      tx.oncomplete = () => { db.close(); res(req && req.result); };
+      tx.onerror = tx.onabort = () => { db.close(); rej(tx.error); };
+    });
+  }
+  function decodeAudio(arrayBuffer) {
+    const c = getCtx();
+    if (!c) return Promise.reject(new Error('No audio support'));
+    return new Promise((res, rej) => {
+      const p = c.decodeAudioData(arrayBuffer.slice(0), res, rej);
+      if (p && p.then) p.then(res, rej);
+    });
+  }
+  async function useSoundFile(file) {
+    if (!file) return;
+    custom.error = '';
+    if (file.size > MAX_BYTES) {
+      custom.error = 'That file is over 10 MB. Please choose a shorter clip.';
+      syncSoundFields(); return;
+    }
+    custom.loading = true; syncSoundFields();
+    let data, buffer;
+    try {
+      data = await file.arrayBuffer();
+      buffer = await decodeAudio(data);
+      if (!buffer || buffer.duration < 0.05) throw new Error('empty');
+    } catch (e) {
+      custom.loading = false;
+      custom.error = 'That file couldn’t be played. Try an MP3 or WAV file.';
+      syncSoundFields(); return;
+    }
+    const rec = { name: file.name, type: file.type, data: data };
+    custom = { name: file.name, buffer: buffer, rec: rec, saved: true, error: '', loading: false };
+    try { await dbRun('readwrite', (st) => st.put(rec, SOUND_KEY)); }
+    catch (e) { custom.saved = false; }
+    cfg.sound = 'custom'; f.sound.value = 'custom';
+    saveCfg(); syncSoundFields(); render();
+  }
+  async function removeSoundFile() {
+    try { await dbRun('readwrite', (st) => st.delete(SOUND_KEY)); } catch (e) { /* nothing stored */ }
+    custom = { name: '', buffer: null, rec: null, saved: true, error: '', loading: false };
+    cfg.sound = 'beep'; f.sound.value = 'beep';
+    saveCfg(); syncSoundFields(); render();
+  }
+  // Reads the saved file (if any) without starting audio; decodes it only when it's in use.
+  async function loadSavedSound() {
+    try {
+      const rec = await dbRun('readonly', (st) => st.get(SOUND_KEY));
+      if (rec && rec.data) { custom.rec = rec; custom.name = rec.name || 'your sound'; }
+    } catch (e) { /* no saved sound, or storage blocked */ }
+    if (cfg.sound === 'custom') await decodeSaved();
+    syncSoundFields();
+  }
+  async function decodeSaved() {
+    if (!custom.rec || custom.buffer) return;
+    custom.loading = true; syncSoundFields();
+    try { custom.buffer = await decodeAudio(custom.rec.data); }
+    catch (e) { custom.error = 'Your saved sound couldn’t be played. Please choose it again.'; }
+    custom.loading = false; syncSoundFields();
+  }
+  function customInfo() {
+    if (custom.loading) return ['Loading…', false];
+    if (custom.error) return [custom.error + (custom.buffer ? ' Still using “' + custom.name + '”.' : ''), true];
+    if (!custom.buffer) return ['No file chosen yet – the classic beep plays until you choose one.', true];
+    const d = custom.buffer.duration;
+    const len = d < 10 ? d.toFixed(1) + ' s' : Math.round(d) + ' s';
+    const nm = custom.name.length > 40 ? custom.name.slice(0, 37) + '…' : custom.name;
+    let t = 'Using “' + nm + '” (' + len + '). ';
+    t += d < cfg.alarmSecs ? 'It repeats until the alarm time is up.' : 'It fades out when the alarm time is up.';
+    t += custom.saved ? ' Saved on this device only.' : ' It couldn’t be saved here, so you’ll need to choose it again next visit.';
+    return [t, false];
+  }
+  function syncSoundFields() {
+    const sel = document.getElementById('sound');
+    const box = document.getElementById('customRow');
+    if (!sel || !box) return;
+    box.hidden = sel.value !== 'custom';
+    document.getElementById('removeFile').hidden = !custom.buffer;
+    document.getElementById('chooseFile').textContent = custom.buffer ? 'Change file…' : 'Choose file…';
+    const info = customInfo(), el = document.getElementById('customInfo');
+    el.textContent = info[0];
+    el.classList.toggle('warn', info[1]);
+  }
+
+  // Schedules the chosen sound a little ahead of time so it keeps going smoothly.
+  function startSound(seconds) {
+    if (!ensureAudio()) return;
+    stopSound();
+    const bus = ctx.createGain();
+    bus.connect(master);
+    const t0 = ctx.currentTime + 0.05;
+    const s = { bus: bus, next: t0, end: t0 + seconds, snd: SOUNDS[cfg.sound] || SOUNDS.beep, srcs: [] };
+    s.pump = () => {
+      const horizon = ctx.currentTime + 1.5;
+      while (s.next < s.end && s.next < horizon) s.next += s.snd.play(bus, s.next, s);
+    };
+    s.pump();
+    s.timer = setInterval(s.pump, 250);
+    alarmSound = s;
+    return s;
+  }
+  function stopSound() {
+    if (!alarmSound) return;
+    const s = alarmSound;
+    alarmSound = null;
+    clearInterval(s.timer);
+    try {
+      const tc = s.srcs.length ? 0.12 : 0.03; // own sound files fade out a little more gently
+      s.bus.gain.setTargetAtTime(0, ctx.currentTime, tc);
+      setTimeout(() => {
+        s.srcs.forEach((n) => { try { n.stop(); } catch (e) { /* already stopped */ } });
+        try { s.bus.disconnect(); } catch (e) { /* already gone */ }
+      }, tc * 8000);
+    } catch (e) { /* ignore */ }
+  }
+
+  /* ================= background / theme ================= */
+  const THEMES = ['dark', 'light', 'system', 'custom'];
+  const BASE_BG = { dark: '#0f1115', light: '#f4f5f7' };
+  const mqLight = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  const isHex = (v) => /^#[0-9a-f]{6}$/i.test(v);
+
+  function luminance(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+  function contrast(a, b) {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+  function currentBg() {
+    if (cfg.theme === 'custom') return cfg.bgColor;
+    if (cfg.theme === 'light') return BASE_BG.light;
+    if (cfg.theme === 'system') return mqLight && mqLight.matches ? BASE_BG.light : BASE_BG.dark;
+    return BASE_BG.dark;
+  }
+  function applyTheme() {
+    const root = document.documentElement, st = root.style;
+    ['--bg', '--panel', '--panel-2', '--line', '--muted', '--dot', '--track'].forEach((p) => st.removeProperty(p));
+    let mode = cfg.theme;
+    if (mode === 'system') mode = mqLight && mqLight.matches ? 'light' : 'dark';
+    if (mode === 'custom') {
+      // Above ~0.18 luminance, dark text reads better than white.
+      const lightBg = luminance(cfg.bgColor) > 0.18;
+      mode = lightBg ? 'light' : 'dark';
+      st.setProperty('--bg', cfg.bgColor);
+      st.setProperty('--panel', lightBg ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.28)');
+      st.setProperty('--panel-2', lightBg ? 'rgba(255,255,255,.7)' : 'rgba(0,0,0,.34)');
+      st.setProperty('--line', lightBg ? 'rgba(0,0,0,.14)' : 'rgba(255,255,255,.16)');
+      st.setProperty('--muted', lightBg ? 'rgba(20,23,28,.68)' : 'rgba(242,244,248,.72)');
+      st.setProperty('--dot', lightBg ? 'rgba(0,0,0,.16)' : 'rgba(255,255,255,.2)');
+      st.setProperty('--track', lightBg ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.14)');
+    }
+    root.dataset.theme = mode;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', currentBg());
+    syncFlashWarning();
+  }
+  function syncFlashWarning() {
+    const warn = document.getElementById('flashWarn');
+    if (!warn) return;
+    const usesColour = ['strobe', 'pulse', 'border'].includes(cfg.flash);
+    warn.hidden = !(usesColour && contrast(cfg.flashColor, currentBg()) < 1.6);
+  }
+  if (mqLight) {
+    const onSchemeChange = () => { if (cfg.theme === 'system') applyTheme(); };
+    if (mqLight.addEventListener) mqLight.addEventListener('change', onSchemeChange);
+    else if (mqLight.addListener) mqLight.addListener(onSchemeChange);
+  }
+
+  /* ================= alarm (sound + flash + vibration) ================= */
+  let alarmOn = false, alarmTimer = null;
+  const FX = ['fx-strobe', 'fx-redwhite', 'fx-rainbow', 'fx-pulse', 'fx-border', 'fx-digits'];
+
+  function applyFlashVars() {
+    const root = document.documentElement.style;
+    root.setProperty('--fc', cfg.flashColor);
+    root.setProperty('--fp', (SPEEDS[cfg.flashSpeed] || 1) + 's');
+  }
+  function startFlash() {
+    stopFlash();
+    if (cfg.flash === 'none') return;
+    void document.body.offsetWidth; // restart animations cleanly
+    document.body.classList.add('fx-' + cfg.flash);
+  }
+  function stopFlash() { FX.forEach((c) => document.body.classList.remove(c)); }
+
+  /* ---------- spoken message (built-in text-to-speech) ---------- */
+  const canSpeak = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  let voices = [];
+  let alarmId = 0, speechActive = false, alarmTimeUp = false;
+  let speechTimers = [];
+
+  function loadVoices() {
+    if (!canSpeak) return;
+    const rank = (v) => (/^en[-_]GB/i.test(v.lang) ? 0 : /^en/i.test(v.lang) ? 1 : 2);
+    voices = speechSynthesis.getVoices().slice().sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+    fillVoiceList();
+  }
+  function defaultVoice() {
+    return voices.find((v) => /^en[-_]GB/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang)) || voices[0] || null;
+  }
+  function chosenVoice() {
+    return voices.find((v) => v.voiceURI === cfg.voiceURI) || defaultVoice();
+  }
+  function fillVoiceList() {
+    const sel = document.getElementById('voice');
+    if (!sel) return;
+    sel.innerHTML = '';
+    if (!voices.length) {
+      const o = document.createElement('option'); o.value = ''; o.textContent = 'Device default';
+      sel.appendChild(o); return;
+    }
+    voices.forEach((v) => {
+      const o = document.createElement('option');
+      o.value = v.voiceURI; o.textContent = v.name + ' (' + v.lang + ')';
+      sel.appendChild(o);
+    });
+    const v = chosenVoice();
+    sel.value = v ? v.voiceURI : '';
+  }
+  function makeUtterance() {
+    const u = new SpeechSynthesisUtterance(cfg.speakText);
+    const v = chosenVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-GB'; }
+    u.rate = cfg.speakRate;
+    u.volume = Math.min(1, cfg.volume / 100);
+    return u;
+  }
+  const speechWanted = () => canSpeak && cfg.speakMode !== 'off' && cfg.volume > 0 && cfg.speakText.trim() !== '';
+  function later(fn, ms) { speechTimers.push(setTimeout(fn, ms)); }
+
+  // Reads the message cfg.speakTimes times, with a short pause between each.
+  function speakMessage(id) {
+    let said = 0;
+    const sayNext = () => {
+      if (id !== alarmId) return;
+      const u = makeUtterance();
+      let finished = false;
+      u.onend = u.onerror = () => {
+        if (finished || id !== alarmId) return;
+        finished = true;
+        said++;
+        if (said < cfg.speakTimes) later(sayNext, 500);
+        else speechFinished(id);
+      };
+      speechSynthesis.speak(u);
+    };
+    try { speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    later(sayNext, 60);
+    // Safety net in case the device never reports that speaking has finished.
+    const est = (cfg.speakText.length / 10 / cfg.speakRate + 1.5) * cfg.speakTimes + 4;
+    later(() => speechFinished(id), est * 1000);
+  }
+  function speechFinished(id) {
+    if (id !== alarmId || !speechActive) return;
+    speechActive = false;
+    if (alarmTimeUp) { stopAlarm(); render(); }
+  }
+
+  function startAlarm() {
+    stopAlarm();
+    const id = alarmId;
+    // Close Settings so the class can see the flash.
+    const panel = document.getElementById('settings');
+    if (panel && panel.open) panel.close();
+    alarmOn = true;
+    document.body.classList.add('alarm-on');
+    if (speechWanted()) {
+      speechActive = true;
+      if (cfg.speakMode === 'soundvoice') {
+        // Play the alarm sound once as an attention-getter, then read the message.
+        const snd = startSound(0.01);
+        let intro = snd ? snd.next - (snd.end - 0.01) : 0;
+        if (cfg.sound === 'custom' && intro > 4) { intro = 4; later(stopSound, 4000); } // long own files are trimmed
+        later(() => speakMessage(id), intro * 1000 + 250);
+      } else {
+        speakMessage(id);
+      }
+    } else {
+      startSound(cfg.alarmSecs);
+    }
+    startFlash();
+    if (cfg.vibrate && navigator.vibrate) {
+      const pattern = [];
+      for (let t = 0; t < cfg.alarmSecs * 1000; t += 750) pattern.push(500, 250);
+      try { navigator.vibrate(pattern); } catch (e) { /* not allowed */ }
+    }
+    // The alarm ends after the set time, or once the message has finished, whichever is later.
+    alarmTimer = setTimeout(() => {
+      alarmTimeUp = true;
+      if (!speechActive) { stopAlarm(); render(); }
+    }, cfg.alarmSecs * 1000);
+  }
+  function stopAlarm() {
+    clearTimeout(alarmTimer);
+    alarmTimer = null;
+    alarmId++;
+    speechTimers.forEach(clearTimeout); speechTimers = [];
+    if (speechActive && canSpeak) { try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
+    speechActive = false; alarmTimeUp = false;
+    stopSound();
+    stopFlash();
+    if (navigator.vibrate) { try { navigator.vibrate(0); } catch (e) { /* ignore */ } }
+    alarmOn = false;
+    document.body.classList.remove('alarm-on');
+  }
+
+  /* ================= timer state ================= */
+  // status: idle | running | paused | done
+  const S = { status: 'idle', acc: 0, t0: 0, fired: 0 };
+  const now = () => performance.now();
+  const elapsed = () => S.status === 'running' ? S.acc + (now() - S.t0) : S.acc;
+  const isActive = () => S.status === 'running' || S.status === 'paused';
+
+  function checkBoundaries() {
+    if (!isActive()) return;
+    const D = durMs(), R = cfg.rounds;
+    const crossed = Math.min(R, Math.floor(elapsed() / D));
+    if (crossed > S.fired) {
+      S.fired = crossed;
+      startAlarm(); // next round is already counting down while this plays
+      if (crossed >= R) {
+        S.status = 'done';
+        S.acc = R * D;
+        syncLocks();
+      }
+    }
+  }
+
+  function startPause() {
+    ensureAudio(); // a tap is needed before the browser allows sound
+    if (S.status === 'idle' || S.status === 'done') {
+      stopAlarm();
+      S.acc = 0; S.fired = 0; S.t0 = now(); S.status = 'running';
+      requestWake();
+    } else if (S.status === 'running') {
+      S.acc = elapsed();
+      S.status = 'paused';
+      stopAlarm();
+    } else {
+      S.t0 = now();
+      S.status = 'running';
+      requestWake();
+    }
+    syncLocks();
+    render();
+  }
+  function reset() {
+    stopAlarm();
+    S.status = 'idle'; S.acc = 0; S.fired = 0;
+    releaseWake();
+    syncLocks();
+    render();
+  }
+  function skip() {
+    if (!isActive()) return;
+    ensureAudio();
+    const D = durMs();
+    S.acc = (Math.floor(elapsed() / D) + 1) * D;
+    if (S.status === 'running') S.t0 = now();
+    checkBoundaries();
+    render();
+  }
+
+  /* ================= rendering ================= */
+  const CIRC = 2 * Math.PI * 88;
+  const el = {
+    ring: $('#ring'), dial: $('#dial'), time: $('#time'), round: $('#roundLabel'), status: $('#status'),
+    dots: $('#dots'), start: $('#startBtn'), reset: $('#resetBtn'), skip: $('#skipBtn')
+  };
+  el.ring.setAttribute('stroke-dasharray', CIRC.toFixed(2));
+
+  const fmt = (s) => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+
+  function ringColour(remS, durS) {
+    let redAt = cfg.redAt;
+    if (redAt >= durS) redAt = durS / 3; // short test rounds still show the green-to-red change
+    if (remS <= redAt) return { c: 'hsl(0 84% 58%)', urgent: true };
+    const frac = (remS - redAt) / (durS - redAt);   // 1 = full time, 0 = just above red
+    const hue = 35 + frac * (140 - 35);               // amber -> green
+    return { c: 'hsl(' + hue.toFixed(1) + ' 72% 48%)', urgent: false };
+  }
+
+  function buildDots() {
+    const R = cfg.rounds;
+    el.dots.innerHTML = '';
+    el.dots.hidden = R > 20;
+    if (R > 20) return;
+    for (let i = 0; i < R; i++) el.dots.appendChild(document.createElement('span'));
+  }
+
+  const last = {};
+  function setText(node, key, val) { if (last[key] !== val) { node.textContent = val; last[key] = val; } }
+
+  function render() {
+    const D = durMs(), R = cfg.rounds, e = elapsed();
+    let idx, rem;
+    if (S.status === 'done') { idx = R - 1; rem = 0; }
+    else { idx = Math.min(R - 1, Math.floor(e / D)); rem = Math.max(0, D - (e - idx * D)); }
+
+    setText(el.time, 'time', fmt(Math.ceil(rem / 1000 - 1e-6)));
+    el.ring.setAttribute('stroke-dashoffset', (CIRC * (1 - rem / D)).toFixed(2));
+    const col = ringColour(rem / 1000, D / 1000);
+    if (last.col !== col.c) { el.dial.style.setProperty('--ring', col.c); last.col = col.c; }
+    el.dial.classList.toggle('urgent', col.urgent && S.status !== 'idle');
+
+    const name = cfg.label || 'Round';
+    setText(el.round, 'round', S.status === 'done' ? R + ' of ' + R + ' complete' : name + ' ' + (idx + 1) + ' of ' + R);
+
+    let status = '';
+    const muted = cfg.volume === 0;
+    if (alarmOn) status = muted ? 'Alarm muted – tap to stop' : 'Tap the circle to silence';
+    else if (S.status === 'idle') status = 'Tap the circle for settings';
+    else if (S.status === 'paused') status = 'Paused';
+    else if (S.status === 'done') status = 'Finished';
+    else if (idx === R - 1 && R > 1) status = 'Final ' + name.toLowerCase();
+    // Warn when the alarm volume is at zero (the flash still works).
+    if (muted && !alarmOn) {
+      if (S.status === 'idle') status = 'Alarm muted – tap to change';
+      else if (status) status += ' · alarm muted';
+      else status = 'Alarm muted';
+    }
+    el.status.classList.toggle('muted', muted);
+    setText(el.status, 'status', status);
+    const dialName = alarmOn ? (muted ? 'Stop alarm (sound is muted)' : 'Silence alarm') : 'Timer – open settings';
+    if (last.dialName !== dialName) { el.dial.setAttribute('aria-label', dialName); last.dialName = dialName; }
+
+    const kids = el.dots.children;
+    for (let i = 0; i < kids.length; i++) {
+      const cls = S.status === 'done' || i < idx ? 'done' : (i === idx && S.status !== 'idle' ? 'current' : '');
+      if (kids[i].className !== cls) kids[i].className = cls;
+    }
+
+    const label = { idle: 'Start', running: 'Pause', paused: 'Resume', done: 'Restart' }[S.status];
+    setText(el.start, 'start', label);
+    el.start.classList.toggle('pause', S.status === 'running');
+    el.skip.disabled = !isActive();
+    el.reset.disabled = S.status === 'idle' && !alarmOn;
+  }
+
+  function frame() { checkBoundaries(); render(); requestAnimationFrame(frame); }
+
+  /* ================= keep the screen on ================= */
+  let wake = null;
+  async function requestWake() {
+    try {
+      if ('wakeLock' in navigator && !wake && document.visibilityState === 'visible') {
+        wake = await navigator.wakeLock.request('screen');
+        wake.addEventListener('release', () => { wake = null; });
+      }
+    } catch (e) { /* not supported or not allowed */ }
+  }
+  function releaseWake() {
+    try { if (wake) wake.release(); } catch (e) { /* ignore */ }
+    wake = null;
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (S.status !== 'idle') requestWake();
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+    }
+  });
+
+  /* ================= settings dialog ================= */
+  const dlg = $('#settings');
+  const f = {
+    mins: $('#mins'), secs: $('#secs'), rounds: $('#rounds'), label: $('#label'), redAt: $('#redAt'),
+    sound: $('#sound'), volume: $('#volume'), alarmSecs: $('#alarmSecs'),
+    flash: $('#flash'), flashColor: $('#flashColor'), flashSpeed: $('#flashSpeed'), vibrate: $('#vibrate'),
+    theme: $('#theme'), bgColor: $('#bgColor'),
+    speakMode: $('#speakMode'), speakText: $('#speakText'), speakTimes: $('#speakTimes'),
+    voice: $('#voice'), speakRate: $('#speakRate')
+  };
+  Object.keys(SOUNDS).forEach((k) => {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = SOUNDS[k].name;
+    f.sound.appendChild(o);
+  });
+
+  function fillForm() {
+    f.mins.value = cfg.mins; f.secs.value = cfg.secs; f.rounds.value = cfg.rounds; f.label.value = cfg.label;
+    f.redAt.value = String(cfg.redAt); if (!f.redAt.value) f.redAt.value = '60';
+    f.sound.value = cfg.sound; if (!f.sound.value) f.sound.value = 'beep';
+    f.volume.value = cfg.volume; f.alarmSecs.value = cfg.alarmSecs;
+    f.flash.value = cfg.flash; f.flashColor.value = cfg.flashColor;
+    f.flashSpeed.value = cfg.flashSpeed; f.vibrate.checked = cfg.vibrate;
+    f.theme.value = THEMES.includes(cfg.theme) ? cfg.theme : 'dark'; f.bgColor.value = cfg.bgColor;
+    f.speakMode.value = cfg.speakMode; f.speakText.value = cfg.speakText; f.speakTimes.value = cfg.speakTimes;
+    f.speakRate.value = String(cfg.speakRate); if (!f.speakRate.value) f.speakRate.value = '1';
+    fillVoiceList();
+    syncFlashFields();
+  }
+  function num(input, min, max, def) {
+    const v = parseInt(input.value, 10);
+    return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def;
+  }
+  function readForm() {
+    if (!isActive()) {
+      let m = num(f.mins, 0, 99, 10), s = num(f.secs, 0, 59, 0);
+      const roundsChanged = num(f.rounds, 1, 50, 5) !== cfg.rounds;
+      cfg.mins = m; cfg.secs = s; cfg.rounds = num(f.rounds, 1, 50, 5);
+      if (roundsChanged) buildDots();
+      if (S.status === 'done') { S.status = 'idle'; S.acc = 0; S.fired = 0; }
+    }
+    cfg.label = (f.label.value.trim() || 'Round').slice(0, 16);
+    cfg.redAt = parseInt(f.redAt.value, 10) || 60;
+    cfg.sound = SOUNDS[f.sound.value] ? f.sound.value : 'beep';
+    cfg.volume = num(f.volume, 0, 100, 80);
+    cfg.alarmSecs = num(f.alarmSecs, 1, 60, 8);
+    cfg.flash = f.flash.value;
+    cfg.flashColor = /^#[0-9a-f]{6}$/i.test(f.flashColor.value) ? f.flashColor.value : '#ffffff';
+    cfg.flashSpeed = SPEEDS[f.flashSpeed.value] ? f.flashSpeed.value : 'slow';
+    cfg.vibrate = f.vibrate.checked;
+    cfg.theme = THEMES.includes(f.theme.value) ? f.theme.value : 'dark';
+    cfg.bgColor = isHex(f.bgColor.value) ? f.bgColor.value : '#1e3a8a';
+    cfg.speakMode = ['off', 'voice', 'soundvoice'].includes(f.speakMode.value) ? f.speakMode.value : 'off';
+    cfg.speakText = f.speakText.value.trim().slice(0, 200) || "Time's up";
+    cfg.speakTimes = num(f.speakTimes, 1, 10, 1);
+    if (f.voice.value) cfg.voiceURI = f.voice.value;
+    cfg.speakRate = [0.8, 1, 1.2].includes(parseFloat(f.speakRate.value)) ? parseFloat(f.speakRate.value) : 1;
+    saveCfg();
+    applyTheme();
+    applyFlashVars();
+    applyVolume();
+    syncFlashFields();
+    render();
+  }
+  function syncFlashFields() {
+    const v = f.flash.value;
+    f.flashColor.disabled = v === 'redwhite' || v === 'rainbow' || v === 'none';
+    f.flashSpeed.disabled = v === 'none';
+    $('#bgRow').hidden = f.theme.value !== 'custom';
+    syncSoundFields();
+    syncSpeechFields();
+  }
+  function syncSpeechFields() {
+    const mode = f.speakMode.value;
+    $('#noSpeech').hidden = canSpeak;
+    f.speakMode.disabled = !canSpeak;
+    $('#speechFields').hidden = !canSpeak || mode === 'off';
+    $('#timesWord').textContent = parseInt(f.speakTimes.value, 10) === 1 ? 'time' : 'times';
+    $('#speechNote').textContent = mode === 'soundvoice'
+      ? 'Your alarm sound plays once, then the message is read out. The flash keeps going until it finishes. Voices vary between devices.'
+      : 'The message replaces the alarm sound. The flash keeps going until it finishes. Voices vary between devices.';
+  }
+  function syncLocks() {
+    const lock = isActive();
+    f.mins.disabled = f.secs.disabled = f.rounds.disabled = lock;
+    $('#lockNote').hidden = !lock;
+  }
+
+  Object.values(f).forEach((input) => {
+    input.addEventListener('change', () => {
+      readForm();
+      // Tidy only the field that changed, so typing in one box never overwrites another.
+      const key = Object.keys(f).find((k) => f[k] === input);
+      if (input.type === 'number' && !input.disabled) input.value = cfg[key];
+    });
+  });
+  f.volume.addEventListener('input', readForm);
+  f.flash.addEventListener('input', syncFlashFields);
+  // Live preview while choosing colours
+  f.bgColor.addEventListener('input', readForm);
+  f.flashColor.addEventListener('input', readForm);
+  f.theme.addEventListener('input', readForm);
+
+  // Own sound file: choosing "My own sound…" with nothing saved opens the file picker.
+  const fileInput = $('#fileInput');
+  f.sound.addEventListener('change', () => {
+    syncSoundFields();
+    if (f.sound.value !== 'custom' || custom.buffer) return;
+    if (custom.rec) decodeSaved(); // reuse the file saved earlier
+    else fileInput.click();
+  });
+  $('#chooseFile').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = ''; // allow choosing the same file again later
+    useSoundFile(file);
+  });
+  $('#removeFile').addEventListener('click', removeSoundFile);
+  // Spoken message
+  f.speakMode.addEventListener('input', syncSpeechFields);
+  f.speakTimes.addEventListener('input', syncSpeechFields);
+  $('#hearBtn').addEventListener('click', () => {
+    readForm();
+    if (!canSpeak || alarmOn) return;
+    try { speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    setTimeout(() => speechSynthesis.speak(makeUtterance()), 60);
+  });
+  if (canSpeak) {
+    loadVoices();
+    if ('onvoiceschanged' in speechSynthesis) speechSynthesis.addEventListener('voiceschanged', loadVoices);
+  }
+  // Drag and drop a file onto the Settings panel (computers).
+  if (window.matchMedia && window.matchMedia('(pointer: fine)').matches) $('#dropHint').hidden = false;
+  dlg.addEventListener('dragover', (ev) => { ev.preventDefault(); dlg.classList.add('dragging'); });
+  dlg.addEventListener('dragleave', (ev) => { if (ev.target === dlg) dlg.classList.remove('dragging'); });
+  dlg.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    dlg.classList.remove('dragging');
+    const file = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+    if (file) { f.sound.value = 'custom'; useSoundFile(file); }
+  });
+
+  let previewTimer = null;
+  $('#previewBtn').addEventListener('click', () => {
+    readForm();
+    if (alarmOn) return;
+    startSound(3);
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => { if (!alarmOn) stopSound(); }, 3000);
+  });
+  $('#testBtn2').addEventListener('click', () => { readForm(); dlg.close(); ensureAudio(); startAlarm(); render(); });
+  dlg.addEventListener('click', (ev) => { if (ev.target === dlg) dlg.close(); });
+  // Close buttons (✕ and Done) close the panel directly.
+  dlg.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dlg.close()));
+  // Pressing Enter / Go on the keyboard just finishes editing that box.
+  $('#setForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    if (document.activeElement) document.activeElement.blur();
+  });
+  dlg.addEventListener('close', () => {
+    custom.error = '';
+    readForm();
+    if (cfg.mins * 60 + cfg.secs < 5) { cfg.mins = 0; cfg.secs = 5; saveCfg(); render(); } // shortest round is 5 s
+  });
+
+  /* ================= wiring ================= */
+  el.start.addEventListener('click', startPause);
+  el.reset.addEventListener('click', reset);
+  el.skip.addEventListener('click', skip);
+  // Circle: silences the alarm while it sounds; otherwise opens Settings.
+  // A short pause after silencing stops a frantic double-tap from opening Settings.
+  let silencedAt = -Infinity;
+  el.dial.addEventListener('click', () => {
+    if (alarmOn) { stopAlarm(); silencedAt = now(); render(); return; }
+    if (now() - silencedAt < 1200) return;
+    openSettings();
+  });
+  $('#testBtn').addEventListener('click', () => { ensureAudio(); startAlarm(); render(); });
+  function openSettings() {
+    if (dlg.open) return;
+    fillForm(); syncLocks(); dlg.showModal();
+  }
+  $('#setBtn').addEventListener('click', openSettings);
+
+  const fsBtn = $('#fsBtn');
+  if (!document.documentElement.requestFullscreen) fsBtn.hidden = true;
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  document.addEventListener('fullscreenchange', () => {
+    document.body.classList.toggle('fs-touch', !!document.fullscreenElement && coarse);
+  });
+  fsBtn.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  });
+
+  document.addEventListener('keydown', (ev) => {
+    if (dlg.open || /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
+    if (ev.code === 'Space') { ev.preventDefault(); startPause(); }
+    else if (ev.key === 'r' || ev.key === 'R') reset();
+    else if (ev.key === 's' || ev.key === 'S') skip();
+    else if (ev.key === 'f' || ev.key === 'F') fsBtn.click();
+    else if (ev.key === 'Escape' && alarmOn) { stopAlarm(); render(); }
+  });
+
+  // Backup tick so alarms still fire if animation frames are paused.
+  setInterval(() => { if (document.hidden) checkBoundaries(); }, 500);
+
+  applyFlashVars();
+  applyTheme();
+  loadSavedSound();
+  buildDots();
+  fillForm();
+  syncLocks();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
 
