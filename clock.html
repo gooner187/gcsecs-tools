@@ -1,0 +1,1454 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Exam Clock">
+<meta name="theme-color" content="#222222">
+<meta name="description" content="A full-screen exam clock with analogue and digital displays, exam times and time remaining. From gcsecs.com.">
+<title>Exam Clock · gcsecs.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Atkinson+Hyperlegible:wght@400;700&family=Cormorant+Garamond:wght@600&family=DotGothic16&family=JetBrains+Mono:wght@400;600&family=Nixie+One&family=Oswald:wght@600&display=swap">
+<style>
+:root{
+  --bg:#222222; --primary:#FF8C1A; --secondary:#FFFFFF; --accent:#FF8C1A; --surface:#2E2E2E;
+  --muted:#BDBDBD; --track:#444; --rim:#999;
+  --ui-font:'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);-webkit-text-size-adjust:100%}
+body{color:var(--secondary);font-family:var(--ui-font);-webkit-tap-highlight-color:transparent}
+body.idle:not(.dlg-open){cursor:none}
+
+/* ---------- Stage (scaled to fit the screen) ---------- */
+#viewport{position:fixed;inset:0;overflow:hidden;background:var(--bg)}
+#stage{position:absolute;left:0;top:0;width:max-content;transform-origin:0 0;display:flex;align-items:center;white-space:nowrap}
+#stage *{flex-shrink:0}
+#col{display:flex;flex-direction:column;align-items:flex-start}
+#analogue{width:640px;height:640px;flex-shrink:0}
+#analogue svg{width:100%;height:100%;display:block;overflow:visible}
+#label{font-family:var(--ui-font);margin-bottom:18px}
+#heading{font-size:72px;line-height:1.05;color:var(--primary)}
+#subheading{font-size:36px;line-height:1.25;color:var(--secondary)}
+#heading:empty,#subheading:empty{display:none}
+#digital{font-size:240px}
+#date{font-family:var(--ui-font);font-size:48px;line-height:1.2;color:var(--secondary);margin-top:14px}
+
+.layout-big #analogue{margin-right:90px}
+.layout-side #col,.layout-right #col{align-items:center;text-align:center}
+#clockPane{position:absolute;display:none}
+#clockPane #analogue{width:100%;height:100%;margin:0}
+.layout-stacked{flex-direction:column}
+.layout-stacked #col{display:contents}
+.layout-stacked #label{order:0;text-align:center}
+.layout-stacked #analogue{order:1;margin:10px 0 40px}
+.layout-stacked #digital{order:2}
+.layout-stacked #date{order:3;text-align:center}
+.layout-stacked #exam{order:4}
+
+.show-digital #analogue{display:none}
+.show-analogue #digital{display:none}
+.no-secs .secs,.no-secs .h-sec{display:none!important}
+.no-date #date{display:none}
+.no-label #label{display:none}
+.no-head #heading{display:none}
+.no-sub #subheading{display:none}
+.no-exam #exStart,.no-exam #exFinish{display:none}
+.no-remain #exRem{display:none}
+.no-exam.no-remain #exam{display:none}
+
+/* ---------- Location (world clock) ---------- */
+#loc{display:inline-flex;align-items:center;gap:14px;margin-bottom:16px;font-family:var(--ui-font);text-align:left}
+#flag{width:60px;height:45px;object-fit:cover;border-radius:4px;box-shadow:0 0 0 1px rgba(128,128,128,.35);display:block;flex-shrink:0}
+#flag.hide{display:none}
+#locName{font-size:36px;line-height:1.05;color:var(--primary)}
+#locSub{font-size:22px;line-height:1.25;color:var(--secondary)}
+#locSub:empty{display:none}
+.no-loc #loc{display:none}
+.layout-stacked #loc{order:0}
+
+/* ---------- Analogue faces (theme-following parts) ---------- */
+.f-face{fill:var(--surface)}
+.s-rim{stroke:var(--rim)}
+.s-tick{stroke:var(--primary)}
+.f-num{fill:var(--primary)}
+.s-hand{stroke:var(--secondary)}
+.f-hand{fill:var(--secondary)}
+.s-sec{stroke:var(--accent)}
+.f-sec{fill:var(--accent)}
+
+/* ---------- Digital styles ---------- */
+.d{display:inline-block;text-align:center}
+.ap:empty{display:none}
+
+.dg-bold{display:flex;align-items:flex-start;font-family:'Archivo Black','Arial Black','Helvetica Neue',Arial,sans-serif;font-weight:900;line-height:.92;color:var(--primary)}
+.dg-bold .hm{display:flex}
+.dg-bold .d{width:var(--dw,.7em)}
+.dg-bold .c{display:inline-block;width:.3em;text-align:center;transform:translateY(-.04em)}
+.dg-bold .ss{font-size:.42em;color:var(--secondary);margin-left:.1em;display:flex;flex-direction:column;align-items:center;line-height:1;margin-top:.02em}
+.dg-bold .sdg{display:flex}
+.dg-bold .ap{font-family:var(--ui-font);font-weight:700;font-size:.42em;margin-top:.35em}
+
+.dg-plain{display:flex;align-items:baseline;font-family:var(--ui-font);font-weight:700;font-size:.78em;line-height:1;color:var(--primary)}
+.dg-plain .d{width:var(--dw,.6em)}
+.dg-plain .c{display:inline-block;width:.28em;text-align:center;transform:translateY(-.06em)}
+.dg-plain .secs{display:inline-flex;align-items:baseline}
+.dg-plain .ap{font-size:.3em;margin-left:.3em}
+
+.dg-dot{background-color:var(--surface);background-image:radial-gradient(rgba(128,128,128,.22) 1.4px,transparent 1.8px);background-size:8px 8px;padding:.1em .18em;border-radius:20px}
+.dg-dot .dot-in{display:flex;align-items:baseline;font-family:'DotGothic16','Courier New',monospace;font-size:.66em;line-height:1.05;color:var(--primary);text-shadow:0 0 .06em var(--primary)}
+.dg-dot .d{width:var(--dw,.56em)}
+.dg-dot .c{display:inline-block;width:.3em;text-align:center}
+.dg-dot .secs{display:inline-flex;align-items:baseline}
+.dg-dot .ap{font-size:.3em;margin-left:.3em}
+
+.dg-flip{display:flex;align-items:center;font-size:.5em;font-family:'Oswald','Arial Narrow',Arial,sans-serif;font-weight:600;color:var(--primary)}
+.dg-flip .fg{display:flex;gap:.06em}
+.dg-flip .fcol{font-size:.6em;color:var(--muted);margin:0 .14em;transform:translateY(-.06em)}
+.dg-flip .secs.fg{display:flex}
+.dg-flip .ap{font-size:.3em;margin-left:.35em;color:var(--secondary)}
+.fc{position:relative;width:.76em;height:1.12em;perspective:4em}
+.fh{position:absolute;left:0;right:0;height:50%;overflow:hidden;background:var(--surface)}
+.ft{top:0;border-radius:.08em .08em 0 0;transform-origin:50% 100%}
+.fb{bottom:0;border-radius:0 0 .08em .08em;transform-origin:50% 0}
+.fh span{position:absolute;left:0;right:0;height:1.12em;line-height:1.12em;text-align:center}
+.ft span{top:0}
+.fb span{bottom:0}
+.fc::after{content:"";position:absolute;left:0;right:0;top:50%;height:.025em;margin-top:-.0125em;background:var(--bg);z-index:3}
+.f1,.f2{visibility:hidden;-webkit-backface-visibility:hidden;backface-visibility:hidden;z-index:2}
+.fc.go .f1{visibility:visible;animation:flip1 .24s ease-in both}
+.fc.go .f2{visibility:visible;animation:flip2 .24s ease-out .24s both}
+@keyframes flip1{from{transform:rotateX(0)}to{transform:rotateX(-90deg)}}
+@keyframes flip2{from{transform:rotateX(90deg)}to{transform:rotateX(0)}}
+
+.dg-seg{display:flex;align-items:center;gap:.08em;transform:skewX(-6deg)}
+.dg-seg .secs{display:flex;align-items:center;gap:.08em}
+.sd{position:relative;width:.44em;height:.8em}
+.sd i{position:absolute;border-radius:.035em;background:var(--primary);opacity:.1}
+.sd i.on{opacity:1;box-shadow:0 0 .05em var(--primary)}
+.scol{display:flex;flex-direction:column;gap:.2em;padding:0 .02em}
+.scol i{display:block;width:.08em;height:.08em;border-radius:.04em;background:var(--primary);box-shadow:0 0 .05em var(--primary)}
+.dg-seg .ap{font-family:var(--ui-font);font-weight:700;font-size:.18em;color:var(--primary);margin-left:.3em}
+
+.dg-nixie{display:flex;align-items:center;gap:.06em;font-size:.7em}
+.dg-nixie .grp{display:flex;align-items:center;gap:.06em}
+.tube{width:.62em;height:1.12em;border-radius:.31em .31em .12em .12em;background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.02));border:.012em solid rgba(160,160,160,.35);display:flex;align-items:center;justify-content:center;font-family:'Nixie One',Georgia,serif;line-height:1;color:var(--primary);text-shadow:0 0 .05em var(--primary),0 0 .18em var(--primary)}
+.ncol{display:flex;flex-direction:column;gap:.24em;padding:0 .05em}
+.ncol i{display:block;width:.09em;height:.09em;border-radius:50%;background:var(--primary);box-shadow:0 0 .1em var(--primary)}
+.dg-nixie .ap{font-family:var(--ui-font);font-weight:700;font-size:.25em;color:var(--primary);margin-left:.3em}
+
+.dg-term{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;background:var(--surface);border-radius:18px;padding:28px 36px;font-size:24px;line-height:1.5;color:var(--secondary);white-space:pre}
+.dg-term b{font-weight:400;color:var(--muted)}
+.dg-term .tm{color:var(--muted)}
+.dg-term .fmt{color:var(--accent)}
+.tout{display:flex;align-items:center;gap:14px;font-size:100px;line-height:1.1;font-weight:600;color:var(--primary);margin-top:6px}
+.cur{display:inline-block;width:.45em;height:.9em;background:var(--primary);animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+.dg-bin{display:flex;align-items:flex-start;gap:18px}
+.bcol{display:flex;flex-direction:column;align-items:center;gap:18px}
+.bcol.bpair{margin-left:34px}
+.bit{display:block;width:62px;height:62px;border-radius:50%;box-shadow:inset 0 0 0 5px var(--primary);opacity:.28}
+.bit.on{background:var(--primary);opacity:1;box-shadow:0 0 18px var(--primary)}
+.bit.none{visibility:hidden}
+.bden{font:700 54px/62px var(--ui-font);height:62px;color:var(--secondary)}
+.bl{font:700 34px/62px var(--ui-font);height:62px;width:40px;text-align:right;color:var(--muted)}
+
+.dg-hex{display:flex;align-items:flex-start;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;color:var(--primary)}
+.hx-pre{font-size:64px;line-height:1;color:var(--muted);margin:62px 14px 0 0}
+.hg{display:flex;flex-direction:column;align-items:center}
+.hv{font-size:150px;font-weight:600;line-height:1}
+.hd{font:700 36px var(--ui-font);color:var(--secondary);margin-top:12px}
+.hc{font-size:150px;font-weight:600;line-height:1;color:var(--muted);margin:0 6px}
+
+.dg-unix{display:flex;flex-direction:column;align-items:flex-start;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace}
+.layout-side .dg-unix,.layout-right .dg-unix,.layout-stacked .dg-unix{align-items:center}
+.ux{font-size:120px;font-weight:600;line-height:1;color:var(--primary)}
+.ux-cap{font:400 28px var(--ui-font);color:var(--muted);margin-top:14px}
+
+/* ---------- Exam panel ---------- */
+#exam{display:flex;gap:18px;margin-top:44px;font-family:var(--ui-font)}
+.layout-side #exam,.layout-right #exam{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.layout-side #exRem,.layout-right #exRem{grid-column:1 / -1;width:auto}
+.ex-box{background:var(--surface);border-radius:20px;padding:20px 28px;display:flex;flex-direction:column;gap:8px;min-width:190px;box-sizing:border-box;text-align:left}
+.ex-l{font-size:20px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ex-v{font-size:60px;font-weight:700;line-height:1.05;color:var(--secondary)}
+#exRem{width:440px}
+#exRem .ex-v{color:var(--primary)}
+.ex-bar{height:12px;border-radius:6px;background:var(--track);overflow:hidden;margin-top:6px}
+#exBar{height:100%;width:0;border-radius:6px;background:var(--accent)}
+#exRem.warn1{background:#FFC233}
+#exRem.warn1 .ex-l,#exRem.warn1 .ex-v{color:#1A1A1A}
+#exRem.warn1 .ex-bar{background:rgba(0,0,0,.18)}
+#exRem.warn1 #exBar{background:#1A1A1A}
+#exRem.warn2{background:#D92D20}
+#exRem.warn2 .ex-l,#exRem.warn2 .ex-v{color:#FFFFFF}
+#exRem.warn2 .ex-bar{background:rgba(255,255,255,.3)}
+#exRem.warn2 #exBar{background:#FFFFFF}
+#exHint{display:none;font-size:16px;font-weight:700;color:#FFFFFF;opacity:.9}
+#exRem.flash{cursor:pointer;animation:remFlash 1s steps(1,end) infinite}
+#exRem.flash #exHint{display:block}
+#exRem.flash:focus-visible{outline:4px solid #FFFFFF;outline-offset:4px}
+@keyframes remFlash{0%{background:#D92D20;box-shadow:0 0 0 6px rgba(217,45,32,.45)}50%{background:#6E1209;box-shadow:none}}
+
+/* ---------- Toolbar ---------- */
+#toolbar{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));display:flex;gap:8px;z-index:10;transition:opacity .4s}
+#toolbar button{height:44px;min-width:44px;padding:0 14px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;border:1px solid rgba(128,128,128,.35);background:rgba(128,128,128,.18);color:var(--secondary);font:700 15px var(--ui-font);cursor:pointer;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+#toolbar button:hover{background:rgba(128,128,128,.3)}
+#toolbar svg{width:20px;height:20px;flex-shrink:0}
+body.idle #toolbar{opacity:0;pointer-events:none}
+body.no-controls #toolbar{display:none}
+@media (max-width:560px){#toolbar button span{display:none}#toolbar button{padding:0 10px}}
+
+/* ---------- Settings drawer ---------- */
+#settings{position:fixed;top:0;right:0;bottom:0;width:min(400px,100vw);display:flex;flex-direction:column;background:#1C1E22;color:#ECEEF1;font-family:var(--ui-font);z-index:20;transform:translateX(105%);transition:transform .25s ease;box-shadow:-10px 0 30px rgba(0,0,0,.35)}
+#settings.open{transform:none}
+.set-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 14px 20px;border-bottom:1px solid #33373E;padding-top:max(14px,env(safe-area-inset-top))}
+.set-head h2{margin:0;font-size:22px}
+#btnClose,.dlg-x{width:44px;height:44px;border-radius:10px;border:0;background:transparent;color:#ECEEF1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#btnClose:hover,.dlg-x:hover{background:#2A2D33}
+#setBody{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 20px 48px;padding-bottom:max(48px,env(safe-area-inset-bottom))}
+#setBody h3{margin:26px 0 10px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:#A9B0BA}
+.ctl{margin:10px 0}
+.lab{display:block;font-size:15px;color:#C9CED6;margin-bottom:6px}
+.seg{display:flex;gap:3px;padding:3px;border-radius:10px;background:#2A2D33}
+.seg button{flex:1;min-height:40px;border:0;border-radius:8px;background:transparent;color:#ECEEF1;font:inherit;font-size:14px;cursor:pointer;padding:0 6px}
+.seg button[aria-pressed="true"]{background:#ECEEF1;color:#111418;font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.grid button{min-height:44px;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;border:1px solid #3A3F47;background:#24272C;color:#ECEEF1;font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.grid button[aria-pressed="true"]{border-color:#FF8C1A;box-shadow:inset 0 0 0 1px #FF8C1A;font-weight:700}
+.swatch{width:30px;height:22px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;border:1px solid rgba(255,255,255,.25)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;font-size:15px;cursor:pointer}
+.row input[type=checkbox]{-webkit-appearance:none;appearance:none;width:46px;height:28px;border-radius:14px;background:#3A3F47;position:relative;flex-shrink:0;margin:0;cursor:pointer;transition:background .2s}
+.row input[type=checkbox]::before{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .2s}
+.row input[type=checkbox]:checked{background:#FF8C1A}
+.row input[type=checkbox]:checked::before{transform:translateX(18px)}
+.field{width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border-radius:8px;border:1px solid #3A3F47;background:#24272C;color:#ECEEF1;font:inherit;font-size:16px}
+.row .field{width:140px}
+.row input[type=color]{width:56px;height:38px;padding:2px;border-radius:8px;border:1px solid #3A3F47;background:#24272C;cursor:pointer;flex-shrink:0}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{min-height:44px;padding:0 14px;border-radius:10px;border:1px solid #3A3F47;background:#2A2D33;color:#ECEEF1;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.btn:hover{background:#33373E}
+.hint{font-size:13px;color:#A9B0BA;line-height:1.45;margin:8px 0 0}
+select.field option,select.field optgroup{background:#24272C;color:#ECEEF1}
+#shareOut{margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:12px;min-height:72px;padding:8px 10px;resize:vertical}
+#settings :focus-visible,#toolbar :focus-visible{outline:2px solid #FF8C1A;outline-offset:2px}
+
+/* ---------- Toast ---------- */
+/* ---------- Start exam dialog ---------- */
+#examDlgWrap{position:fixed;inset:0;z-index:25;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+#examDlgWrap[hidden]{display:none}
+#examDlg{width:min(460px,100%);max-height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#1C1E22;color:#ECEEF1;border-radius:16px;font-family:var(--ui-font);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#examDlg .set-head{padding-top:14px}
+.dlg-body{padding:6px 20px 22px}
+.len-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.len-row label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#C9CED6}
+.len-row .field{font-size:24px;font-weight:700;min-height:54px}
+.grid.quick{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:12px}
+.grid.quick button{justify-content:center;text-align:center}
+.preview{margin:18px 0 4px;padding:14px 16px;border-radius:10px;background:#24272C;font-size:19px;line-height:1.45}
+.preview strong{color:#FF8C1A;font-size:24px}
+.dlg-btns{display:flex;gap:10px;margin-top:18px}
+.dlg-btns .btn{flex:1;min-height:54px;font-size:17px}
+.btn.primary{background:#FF8C1A;border-color:#FF8C1A;color:#111418}
+.btn.primary:hover{background:#FFA243}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+#exRunning{margin-top:20px;padding-top:4px;border-top:1px solid #33373E}
+#exRunning[hidden]{display:none}
+#examDlg :focus-visible{outline:2px solid #FF8C1A;outline-offset:2px}
+body.no-startbtn #btnExam{display:none}
+
+#toast{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,90vw);padding:12px 16px;border-radius:10px;background:rgba(20,20,22,.94);color:#fff;font:15px/1.4 var(--ui-font);z-index:30;opacity:0;pointer-events:none;transition:opacity .3s;text-align:center;white-space:normal}
+#toast.show{opacity:1}
+
+@media (prefers-reduced-motion:reduce){.fc.go .f1,.fc.go .f2{animation:none;visibility:hidden}.cur{animation:none}#exRem.flash{animation-duration:2s}}
+</style>
+</head>
+<body>
+<div id="viewport">
+  <div id="clockPane"></div>
+  <div id="stage" class="layout-big show-digital">
+    <div id="analogue"></div>
+    <div id="col">
+      <div id="loc"><img id="flag" alt="" width="60" height="45"><div><div id="locName"></div><div id="locSub"></div></div></div>
+      <header id="label"><div id="heading"></div><div id="subheading"></div></header>
+      <div id="digital" role="timer" aria-live="off"></div>
+      <div id="date"></div>
+      <section id="exam" aria-label="Exam times">
+        <div class="ex-box" id="exStart"><span class="ex-l">Start</span><span class="ex-v" id="exStartV"></span></div>
+        <div class="ex-box" id="exFinish"><span class="ex-l">Finish</span><span class="ex-v" id="exFinishV"></span></div>
+        <div class="ex-box" id="exRem"><span class="ex-l" id="exRemL">Time remaining</span><span class="ex-v" id="exRemV"></span><div class="ex-bar"><div id="exBar"></div></div><span id="exHint">Tap or click to stop flashing</span></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="toolbar">
+  <button id="btnExam" type="button" aria-label="Start exam" aria-haspopup="dialog" aria-controls="examDlgWrap">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14" r="7"/><line x1="12" y1="14" x2="12" y2="10.5"/><line x1="10" y1="3" x2="14" y2="3"/><line x1="12" y1="3" x2="12" y2="7"/><line x1="18.5" y1="7.5" x2="19.8" y2="6.2"/></svg>
+    <span>Start exam</span>
+  </button>
+  <button id="btnSettings" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="2.5" fill="currentColor"/><circle cx="15" cy="17" r="2.5" fill="currentColor"/></svg>
+    <span>Settings</span>
+  </button>
+  <button id="btnFull" type="button" aria-label="Full screen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+    <span id="btnFullText">Full screen</span>
+  </button>
+</div>
+
+<aside id="settings" aria-label="Clock settings" aria-hidden="true">
+  <div class="set-head">
+    <h2>Settings</h2>
+    <button id="btnClose" type="button" aria-label="Close settings">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+    </button>
+  </div>
+  <div id="setBody"></div>
+</aside>
+
+<div id="examDlgWrap" hidden>
+  <div id="examDlg" role="dialog" aria-modal="true" aria-labelledby="exDlgTitle">
+    <div class="set-head">
+      <h2 id="exDlgTitle">Start exam</h2>
+      <button id="exDlgClose" type="button" class="dlg-x" aria-label="Close">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="dlg-body">
+      <span class="lab">How long is the exam?</span>
+      <div class="len-row">
+        <label for="lenH">Hours<input id="lenH" class="field" type="number" min="0" max="9" inputmode="numeric"></label>
+        <label for="lenM">Minutes<input id="lenM" class="field" type="number" min="0" max="59" inputmode="numeric"></label>
+      </div>
+      <div class="grid quick" role="group" aria-label="Common exam lengths" id="quickLens"></div>
+      <p class="preview" id="exPreview" aria-live="polite"></p>
+      <p class="hint" id="exRoundNote">The start time is rounded up to the next whole minute, so candidates never lose time.</p>
+      <label class="row"><span>Show time remaining</span><input type="checkbox" id="exRemOn"></label>
+      <div class="dlg-btns">
+        <button type="button" class="btn" id="exCancel">Cancel</button>
+        <button type="button" class="btn primary" id="exGo">Start now</button>
+      </div>
+      <div id="exRunning" hidden>
+        <p class="hint" id="exRunTxt"></p>
+        <div class="btns"><button type="button" class="btn" id="exClear">Clear exam times</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= Settings model ================= */
+  var KEY = 'gcsecs-exam-clock-v1';
+  var PRESETS = {
+    dark:     { bg: '#222222', primary: '#FF8C1A', secondary: '#FFFFFF', accent: '#FF8C1A', surface: '#2E2E2E' },
+    day:      { bg: '#F6F7F9', primary: '#111418', secondary: '#3D4450', accent: '#D3341C', surface: '#FFFFFF' },
+    night:    { bg: '#0E1116', primary: '#E8EAED', secondary: '#A3ACB8', accent: '#FF8A3D', surface: '#161A21' },
+    yellow:   { bg: '#222222', primary: '#FBC93D', secondary: '#FFFFFF', accent: '#FBC93D', surface: '#2E2E2E' },
+    contrast: { bg: '#000000', primary: '#FFFFFF', secondary: '#FFE600', accent: '#FFE600', surface: '#141414' }
+  };
+  var PRESET_LABELS = [['dark', 'Dark'], ['day', 'Day'], ['night', 'Night'], ['yellow', 'Charcoal & yellow'], ['contrast', 'High contrast']];
+  var COLOUR_KEYS = ['bg', 'primary', 'secondary', 'accent', 'surface'];
+  var STYLE_LABELS = [['bold', 'Bold'], ['plain', 'Plain'], ['flip', 'Flip clock'], ['segment', 'LED segments'], ['nixie', 'Nixie tubes'], ['dotmatrix', 'Departure board'], ['terminal', 'Python terminal'], ['binary', 'Binary (BCD)'], ['hex', 'Hexadecimal'], ['unix', 'Unix time']];
+  var FACE_LABELS = [['classroom', 'Classroom'], ['minimal', 'Minimal'], ['roman', 'Roman'], ['luxury', 'Luxury'], ['skeleton', 'Skeleton']];
+
+  /* World clock places: [id, city, country, IANA time zone, flag code, region] */
+  var CITIES = [
+    ['london', 'London', 'United Kingdom', 'Europe/London', 'gb', 'Europe'],
+    ['dublin', 'Dublin', 'Ireland', 'Europe/Dublin', 'ie', 'Europe'],
+    ['lisbon', 'Lisbon', 'Portugal', 'Europe/Lisbon', 'pt', 'Europe'],
+    ['madrid', 'Madrid', 'Spain', 'Europe/Madrid', 'es', 'Europe'],
+    ['paris', 'Paris', 'France', 'Europe/Paris', 'fr', 'Europe'],
+    ['brussels', 'Brussels', 'Belgium', 'Europe/Brussels', 'be', 'Europe'],
+    ['amsterdam', 'Amsterdam', 'Netherlands', 'Europe/Amsterdam', 'nl', 'Europe'],
+    ['berlin', 'Berlin', 'Germany', 'Europe/Berlin', 'de', 'Europe'],
+    ['zurich', 'Zurich', 'Switzerland', 'Europe/Zurich', 'ch', 'Europe'],
+    ['rome', 'Rome', 'Italy', 'Europe/Rome', 'it', 'Europe'],
+    ['vienna', 'Vienna', 'Austria', 'Europe/Vienna', 'at', 'Europe'],
+    ['copenhagen', 'Copenhagen', 'Denmark', 'Europe/Copenhagen', 'dk', 'Europe'],
+    ['oslo', 'Oslo', 'Norway', 'Europe/Oslo', 'no', 'Europe'],
+    ['stockholm', 'Stockholm', 'Sweden', 'Europe/Stockholm', 'se', 'Europe'],
+    ['helsinki', 'Helsinki', 'Finland', 'Europe/Helsinki', 'fi', 'Europe'],
+    ['warsaw', 'Warsaw', 'Poland', 'Europe/Warsaw', 'pl', 'Europe'],
+    ['prague', 'Prague', 'Czechia', 'Europe/Prague', 'cz', 'Europe'],
+    ['athens', 'Athens', 'Greece', 'Europe/Athens', 'gr', 'Europe'],
+    ['bucharest', 'Bucharest', 'Romania', 'Europe/Bucharest', 'ro', 'Europe'],
+    ['kyiv', 'Kyiv', 'Ukraine', 'Europe/Kiev', 'ua', 'Europe'],
+    ['istanbul', 'Istanbul', 'Türkiye', 'Europe/Istanbul', 'tr', 'Europe'],
+    ['moscow', 'Moscow', 'Russia', 'Europe/Moscow', 'ru', 'Europe'],
+    ['new-york', 'New York', 'United States', 'America/New_York', 'us', 'Americas'],
+    ['chicago', 'Chicago', 'United States', 'America/Chicago', 'us', 'Americas'],
+    ['denver', 'Denver', 'United States', 'America/Denver', 'us', 'Americas'],
+    ['los-angeles', 'Los Angeles', 'United States', 'America/Los_Angeles', 'us', 'Americas'],
+    ['anchorage', 'Anchorage', 'United States', 'America/Anchorage', 'us', 'Americas'],
+    ['honolulu', 'Honolulu', 'United States', 'Pacific/Honolulu', 'us', 'Americas'],
+    ['toronto', 'Toronto', 'Canada', 'America/Toronto', 'ca', 'Americas'],
+    ['vancouver', 'Vancouver', 'Canada', 'America/Vancouver', 'ca', 'Americas'],
+    ['mexico-city', 'Mexico City', 'Mexico', 'America/Mexico_City', 'mx', 'Americas'],
+    ['bogota', 'Bogotá', 'Colombia', 'America/Bogota', 'co', 'Americas'],
+    ['lima', 'Lima', 'Peru', 'America/Lima', 'pe', 'Americas'],
+    ['santiago', 'Santiago', 'Chile', 'America/Santiago', 'cl', 'Americas'],
+    ['buenos-aires', 'Buenos Aires', 'Argentina', 'America/Argentina/Buenos_Aires', 'ar', 'Americas'],
+    ['sao-paulo', 'São Paulo', 'Brazil', 'America/Sao_Paulo', 'br', 'Americas'],
+    ['jamaica', 'Kingston', 'Jamaica', 'America/Jamaica', 'jm', 'Americas'],
+    ['casablanca', 'Casablanca', 'Morocco', 'Africa/Casablanca', 'ma', 'Africa'],
+    ['lagos', 'Lagos', 'Nigeria', 'Africa/Lagos', 'ng', 'Africa'],
+    ['accra', 'Accra', 'Ghana', 'Africa/Accra', 'gh', 'Africa'],
+    ['cairo', 'Cairo', 'Egypt', 'Africa/Cairo', 'eg', 'Africa'],
+    ['nairobi', 'Nairobi', 'Kenya', 'Africa/Nairobi', 'ke', 'Africa'],
+    ['johannesburg', 'Johannesburg', 'South Africa', 'Africa/Johannesburg', 'za', 'Africa'],
+    ['riyadh', 'Riyadh', 'Saudi Arabia', 'Asia/Riyadh', 'sa', 'Middle East and Asia'],
+    ['doha', 'Doha', 'Qatar', 'Asia/Qatar', 'qa', 'Middle East and Asia'],
+    ['dubai', 'Dubai', 'United Arab Emirates', 'Asia/Dubai', 'ae', 'Middle East and Asia'],
+    ['karachi', 'Karachi', 'Pakistan', 'Asia/Karachi', 'pk', 'Middle East and Asia'],
+    ['new-delhi', 'New Delhi', 'India', 'Asia/Kolkata', 'in', 'Middle East and Asia'],
+    ['kathmandu', 'Kathmandu', 'Nepal', 'Asia/Kathmandu', 'np', 'Middle East and Asia'],
+    ['dhaka', 'Dhaka', 'Bangladesh', 'Asia/Dhaka', 'bd', 'Middle East and Asia'],
+    ['bangkok', 'Bangkok', 'Thailand', 'Asia/Bangkok', 'th', 'Middle East and Asia'],
+    ['jakarta', 'Jakarta', 'Indonesia', 'Asia/Jakarta', 'id', 'Middle East and Asia'],
+    ['kuala-lumpur', 'Kuala Lumpur', 'Malaysia', 'Asia/Kuala_Lumpur', 'my', 'Middle East and Asia'],
+    ['singapore', 'Singapore', 'Singapore', 'Asia/Singapore', 'sg', 'Middle East and Asia'],
+    ['manila', 'Manila', 'Philippines', 'Asia/Manila', 'ph', 'Middle East and Asia'],
+    ['hong-kong', 'Hong Kong', 'Hong Kong', 'Asia/Hong_Kong', 'hk', 'Middle East and Asia'],
+    ['beijing', 'Beijing', 'China', 'Asia/Shanghai', 'cn', 'Middle East and Asia'],
+    ['seoul', 'Seoul', 'South Korea', 'Asia/Seoul', 'kr', 'Middle East and Asia'],
+    ['tokyo', 'Tokyo', 'Japan', 'Asia/Tokyo', 'jp', 'Middle East and Asia'],
+    ['perth', 'Perth', 'Australia', 'Australia/Perth', 'au', 'Oceania'],
+    ['adelaide', 'Adelaide', 'Australia', 'Australia/Adelaide', 'au', 'Oceania'],
+    ['brisbane', 'Brisbane', 'Australia', 'Australia/Brisbane', 'au', 'Oceania'],
+    ['sydney', 'Sydney', 'Australia', 'Australia/Sydney', 'au', 'Oceania'],
+    ['auckland', 'Auckland', 'New Zealand', 'Pacific/Auckland', 'nz', 'Oceania']
+  ];
+  var CITY = {};
+  CITIES.forEach(function (c) { CITY[c[0]] = { id: c[0], city: c[1], country: c[2], tz: c[3], cc: c[4], region: c[5] }; });
+  CITY.utc = { id: 'utc', city: 'UTC', country: 'Coordinated Universal Time', tz: 'UTC', cc: '', region: '' };
+  /* Flags are built in so they work offline and on filtered networks.
+     Source: flag-icons by Panayiotis Lipiridis, MIT licence (github.com/lipis/flag-icons). */
+  var FLAGS = {"ae":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#00732f\" d=\"M0 0h640v160H0z\"/><path fill=\"#fff\" d=\"M0 160h640v160H0z\"/><path fill=\"#000001\" d=\"M0 320h640v160H0z\"/><path fill=\"red\" d=\"M0 0h220v480H0z\"/></svg>","ar":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><path fill=\"#74acdf\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"M0 160h640v160H0z\"/><g id=\"c\" transform=\"translate(-64)scale(.96)\"><path id=\"a\" fill=\"#f6b40e\" stroke=\"#85340a\" stroke-width=\"1.1\" d=\"m396.8 251.3 28.5 62s.5 1.2 1.3.9c.8-.4.3-1.6.3-1.6l-23.7-64m-.7 24.2c-.4 9.4 5.4 14.6 4.7 23s3.8 13.2 5 16.5c1 3.3-1.2 5.2-.3 5.7 1 .5 3-2.1 2.4-6.8s-4.2-6-3.4-16.3-4.2-12.7-3-22\"/><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" transform=\"rotate(22.5 400 250)\"/><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" transform=\"rotate(45 400 250)\"/><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" transform=\"rotate(67.5 400 250)\"/><path id=\"b\" fill=\"#85340a\" d=\"M404.3 274.4c.5 9 5.6 13 4.6 21.3 2.2-6.5-3.1-11.6-2.8-21.2m-7.7-23.8 19.5 42.6-16.3-43.9\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" transform=\"rotate(22.5 400 250)\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" transform=\"rotate(45 400 250)\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" transform=\"rotate(67.5 400 250)\"/></g><use xlink:href=\"#c\" width=\"100%\" height=\"100%\" transform=\"rotate(90 320 240)\"/><use xlink:href=\"#c\" width=\"100%\" height=\"100%\" transform=\"rotate(180 320 240)\"/><use xlink:href=\"#c\" width=\"100%\" height=\"100%\" transform=\"rotate(-90 320 240)\"/><circle cx=\"320\" cy=\"240\" r=\"26.7\" fill=\"#f6b40e\" stroke=\"#85340a\" stroke-width=\"1.4\"/><path id=\"h\" fill=\"#843511\" stroke-width=\"1\" d=\"M329 234.3c-1.7 0-3.5.8-4.5 2.4 2 1.9 6.6 2 9.7-.2a7 7 0 0 0-5.1-2.2zm0 .4c1.8 0 3.5.8 3.7 1.6-2 2.3-5.3 2-7.4.4q1.6-2 3.8-2z\"/><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 640.2 0)\"/><use xlink:href=\"#e\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 640.2 0)\"/><use xlink:href=\"#f\" width=\"100%\" height=\"100%\" transform=\"translate(18.1)\"/><use xlink:href=\"#g\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 640.2 0)\"/><path fill=\"#85340a\" d=\"M316 243.7a1.8 1.8 0 1 0 1.8 2.9 4 4 0 0 0 2.2.6h.2q1 0 2.3-.6.5.7 1.5.7a1.8 1.8 0 0 0 .3-3.6q.8.3.8 1.2a1.2 1.2 0 0 1-2.4 0 3 3 0 0 1-2.6 1.7 3 3 0 0 1-2.5-1.7q-.1 1.1-1.3 1.2-1-.1-1.2-1.2c-.2-1.1.3-1 .8-1.2zm2 5.4c-2.1 0-3 2-4.8 3.1 1-.4 1.8-1.2 3.3-2s2.6.2 3.5.2 2-1 3.5-.2l3.3 2c-1.9-1.2-2.7-3-4.8-3q-.7 0-2 .6z\"/><path fill=\"#85340a\" d=\"M317.2 251.6q-1.1 0-3.4.6c3.7-.8 4.5.5 6.2.5 1.6 0 2.5-1.3 6.1-.5-4-1.2-4.9-.4-6.1-.4-.8 0-1.4-.3-2.8-.2\"/><path fill=\"#85340a\" d=\"M314 252.2h-.8c4.3.5 2.3 3 6.8 3s2.5-2.5 6.8-3c-4.5-.4-3.1 2.3-6.8 2.3-3.5 0-2.4-2.3-6-2.3\"/><path fill=\"#85340a\" d=\"M323.7 258.9a3.7 3.7 0 0 0-7.4 0 3.8 3.8 0 0 1 7.4 0\"/><path id=\"e\" fill=\"#85340a\" stroke-width=\"1\" d=\"M303.4 234.3c4.7-4.1 10.7-4.8 14-1.7a8 8 0 0 1 1.5 3.4q.6 3.6-2.1 7.5l.8.4q2.4-4.7 1.6-9.4l-.6-2.3c-4.5-3.7-10.7-4-15.2 2z\"/><path id=\"d\" fill=\"#85340a\" stroke-width=\"1\" d=\"M310.8 233c2.7 0 3.3.6 4.5 1.7 1.2 1 1.9.8 2 1 .3.2 0 .8-.3.6q-.7-.2-2.5-1.6c-1.8-1.4-2.5-1-3.7-1-3.7 0-5.7 3-6.1 2.8-.5-.2 2-3.5 6.1-3.5\"/><use xlink:href=\"#h\" width=\"100%\" height=\"100%\" transform=\"translate(-18.4)\"/><circle id=\"f\" cx=\"310.9\" cy=\"236.3\" r=\"1.8\" fill=\"#85340a\" stroke-width=\"1\"/><path id=\"g\" fill=\"#85340a\" stroke-width=\"1\" d=\"M305.9 237.5c3.5 2.7 7 2.5 9 1.3 2-1.3 2-1.7 1.6-1.7s-.8.4-2.4 1.3c-1.7.8-4.1.8-8.2-.9\"/></svg>","at":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#fff\" d=\"M0 160h640v160H0z\"/><path fill=\"#c8102e\" d=\"M0 0h640v160H0zm0 320h640v160H0z\"/></svg>","au":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#00008b\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"m37.5 0 122 90.5L281 0h39v31l-120 89.5 120 89V240h-40l-120-89.5L40.5 240H0v-30l119.5-89L0 32V0z\"/><path fill=\"red\" d=\"M212 140.5 320 220v20l-135.5-99.5zm-92 10 3 17.5-96 72H0zM320 0v1.5l-124.5 94 1-22L295 0zM0 0l119.5 88h-30L0 21z\"/><path fill=\"#fff\" d=\"M120.5 0v240h80V0zM0 80v80h320V80z\"/><path fill=\"red\" d=\"M0 96.5v48h320v-48zM136.5 0v240h48V0z\"/><path fill=\"#fff\" d=\"m527 396.7-20.5 2.6 2.2 20.5-14.8-14.4-14.7 14.5 2-20.5-20.5-2.4 17.3-11.2-10.9-17.5 19.6 6.5 6.9-19.5 7.1 19.4 19.5-6.7-10.7 17.6zm-3.7-117.2 2.7-13-9.8-9 13.2-1.5 5.5-12.1 5.5 12.1 13.2 1.5-9.8 9 2.7 13-11.6-6.6zm-104.1-60-20.3 2.2 1.8 20.3-14.4-14.5-14.8 14.1 2.4-20.3-20.2-2.7 17.3-10.8-10.5-17.5 19.3 6.8L387 178l6.7 19.3 19.4-6.3-10.9 17.3 17.1 11.2ZM623 186.7l-20.9 2.7 2.3 20.9-15.1-14.7-15 14.8 2.1-21-20.9-2.4 17.7-11.5-11.1-17.9 20 6.7 7-19.8 7.2 19.8 19.9-6.9-11 18zm-96.1-83.5-20.7 2.3 1.9 20.8-14.7-14.8-15.1 14.4 2.4-20.7-20.7-2.8 17.7-11L467 73.5l19.7 6.9 7.3-19.5 6.8 19.7 19.8-6.5-11.1 17.6zM234 385.7l-45.8 5.4 4.6 45.9-32.8-32.4-33 32.2 4.9-45.9-45.8-5.8 38.9-24.8-24-39.4 43.6 15 15.8-43.4 15.5 43.5 43.7-14.7-24.3 39.2 38.8 25.1Z\"/></svg>","bd":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#006a4e\" d=\"M0 0h640v480H0z\"/><circle cx=\"280\" cy=\"240\" r=\"160\" fill=\"#f42a41\"/></svg>","be":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#000001\" d=\"M0 0h213.3v480H0z\"/><path fill=\"#ffd90c\" d=\"M213.3 0h213.4v480H213.3z\"/><path fill=\"#f31830\" d=\"M426.7 0H640v480H426.7z\"/></g></svg>","br":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g stroke-width=\"1pt\"><path fill=\"#229e45\" fill-rule=\"evenodd\" d=\"M0 0h640v480H0z\"/><path fill=\"#f8e509\" fill-rule=\"evenodd\" d=\"m321.4 436 301.5-195.7L319.6 44 17.1 240.7z\"/><path fill=\"#2b49a3\" fill-rule=\"evenodd\" d=\"M452.8 240c0 70.3-57.1 127.3-127.6 127.3A127.4 127.4 0 1 1 452.8 240\"/><path fill=\"#ffffef\" fill-rule=\"evenodd\" d=\"m283.3 316.3-4-2.3-4 2 .9-4.5-3.2-3.4 4.5-.5 2.2-4 1.9 4.2 4.4.8-3.3 3m86 26.3-3.9-2.3-4 2 .8-4.5-3.1-3.3 4.5-.5 2.1-4.1 2 4.2 4.4.8-3.4 3.1m-36.2-30-3.4-2-3.5 1.8.8-3.9-2.8-2.9 4-.4 1.8-3.6 1.6 3.7 3.9.7-3 2.7m87-8.5-3.4-2-3.5 1.8.8-3.9-2.7-2.8 3.9-.4 1.8-3.5 1.6 3.6 3.8.7-2.9 2.6m-87.3-22-4-2.2-4 2 .8-4.6-3.1-3.3 4.5-.5 2.1-4.1 2 4.2 4.4.8-3.4 3.2m-104.6-35-4-2.2-4 2 1-4.6-3.3-3.3 4.6-.5 2-4.1 2 4.2 4.4.8-3.3 3.1m13.3 57.2-4-2.3-4 2 .9-4.5-3.2-3.3 4.5-.6 2.1-4 2 4.2 4.4.8-3.3 3.1m132-67.3-3.6-2-3.6 1.8.8-4-2.8-3 4-.5 1.9-3.6 1.7 3.8 4 .7-3 2.7m-6.7 38.3-2.7-1.6-2.9 1.4.6-3.2-2.2-2.3 3.2-.4 1.5-2.8 1.3 3 3 .5-2.2 2.2m-142.2 50.4-2.7-1.5-2.7 1.3.6-3-2.1-2.2 3-.4 1.4-2.7 1.3 2.8 3 .6-2.3 2M419 299.8l-2.2-1.1-2.2 1 .5-2.3-1.7-1.6 2.4-.3 1.2-2 1 2 2.5.5-1.9 1.5\"/><path fill=\"#ffffef\" fill-rule=\"evenodd\" d=\"m219.3 287.6-2.7-1.5-2.7 1.3.6-3-2.1-2.2 3-.4 1.4-2.7 1.3 2.8 3 .6-2.3 2\"/><path fill=\"#ffffef\" fill-rule=\"evenodd\" d=\"m219.3 287.6-2.7-1.5-2.7 1.3.6-3-2.1-2.2 3-.4 1.4-2.7 1.3 2.8 3 .6-2.3 2m42.3 3-2.6-1.4-2.7 1.3.6-3-2.1-2.2 3-.4 1.4-2.7 1.3 2.8 3 .5-2.3 2.1m-4.8 17-2.6-1.5-2.7 1.4.6-3-2.1-2.3 3-.4 1.4-2.7 1.3 2.8 3 .6-2.3 2m87.4-22.2-2.6-1.6-2.8 1.4.6-3-2-2.3 3-.3 1.4-2.7 1.2 2.8 3 .5-2.2 2.1m-25.1 3-2.7-1.5-2.7 1.4.6-3-2-2.3 3-.3 1.4-2.8 1.2 2.9 3 .5-2.2 2.1m-68.8-5.8-1.7-1-1.7.8.4-1.9-1.3-1.4 1.9-.2.8-1.7.8 1.8 1.9.3-1.4 1.3m167.8 45.4-2.6-1.5-2.7 1.4.6-3-2.1-2.3 3-.4 1.4-2.7 1.3 2.8 3 .6-2.3 2m-20.8 6-2.2-1.4-2.3 1.2.5-2.6-1.7-1.8 2.5-.3 1.2-2.3 1 2.4 2.5.4-1.9 1.8m10.4 2.3-2-1.2-2.1 1 .4-2.3-1.6-1.7 2.3-.3 1.1-2 1 2 2.3.5-1.7 1.6m29.1-22.8-2-1-2 1 .5-2.3-1.6-1.7 2.3-.3 1-2 1 2.1 2.1.4-1.6 1.6m-38.8 41.8-2.5-1.4-2.7 1.2.6-2.8-2-2 3-.3 1.3-2.5 1.2 2.6 3 .5-2.3 1.9m.6 14.2-2.4-1.4-2.4 1.3.6-2.8-1.9-2 2.7-.4 1.2-2.5 1.1 2.6 2.7.5-2 2m-19-23.1-1.9-1.2-2 1 .4-2.2-1.5-1.7 2.2-.2 1-2 1 2 2.2.4-1.6 1.6m-17.8 2.3-2-1.2-2 1 .5-2.2-1.6-1.7 2.3-.2 1-2 1 2 2.1.4-1.6 1.6m-30.4-24.6-2-1.1-2 1 .5-2.3-1.6-1.6 2.2-.3 1-2 1 2 2.2.5-1.6 1.5m3.7 57-1.6-.9-1.8.9.4-2-1.3-1.4 1.9-.2.9-1.7.8 1.8 1.9.3-1.4 1.3m-46.2-86.6-4-2.3-4 2 .9-4.5-3.2-3.3 4.5-.6 2.2-4 1.9 4.2 4.4.8-3.3 3.1\"/><path fill=\"#fff\" fill-rule=\"evenodd\" d=\"M444.4 285.8a125 125 0 0 0 5.8-19.8c-67.8-59.5-143.3-90-238.7-83.7a125 125 0 0 0-8.5 20.9c113-10.8 196 39.2 241.4 82.6\"/><path fill=\"#309e3a\" d=\"m414 252.4 2.3 1.3a3 3 0 0 0-.3 2.2 3 3 0 0 0 1.4 1.7q1 .8 2 .7.9 0 1.3-.7l.2-.9-.5-1-1.5-1.8a8 8 0 0 1-1.8-3 4 4 0 0 1 2-4.4 4 4 0 0 1 2.3-.2 7 7 0 0 1 2.6 1.2q2.1 1.5 2.6 3.2a4 4 0 0 1-.6 3.3l-2.4-1.5q.5-1 .2-1.7-.2-.8-1.2-1.4a3 3 0 0 0-1.8-.7 1 1 0 0 0-.9.5q-.3.4-.1 1 .2.8 1.6 2.2t2 2.5a4 4 0 0 1-.3 4.2 4 4 0 0 1-1.9 1.5 4 4 0 0 1-2.4.3q-1.3-.3-2.8-1.3-2.2-1.5-2.7-3.3a5 5 0 0 1 .6-4zm-11.6-7.6 2.5 1.3a3 3 0 0 0-.2 2.2 3 3 0 0 0 1.4 1.6q1.1.8 2 .6.9 0 1.3-.8l.2-.8q0-.5-.5-1l-1.6-1.8q-1.7-1.6-2-2.8a4 4 0 0 1 .4-3.1 4 4 0 0 1 1.6-1.4 4 4 0 0 1 2.2-.3 7 7 0 0 1 2.6 1q2.3 1.5 2.7 3.1a4 4 0 0 1-.4 3.4l-2.5-1.4q.5-1 .2-1.7-.4-1-1.3-1.4a3 3 0 0 0-1.9-.6 1 1 0 0 0-.8.5q-.3.4-.1 1 .3.8 1.7 2.2 1.5 1.5 2 2.4a4 4 0 0 1 0 4.2 4 4 0 0 1-1.8 1.6 4 4 0 0 1-2.4.3 8 8 0 0 1-2.9-1.1 6 6 0 0 1-2.8-3.2 5 5 0 0 1 .4-4m-14.2-3.8 7.3-12 8.8 5.5-1.2 2-6.4-4-1.6 2.7 6 3.7-1.3 2-6-3.7-2 3.3 6.7 4-1.2 2zm-20.7-17 1.1-2 5.4 2.7-2.5 5q-1.2.3-3 .2a9 9 0 0 1-3.3-1 8 8 0 0 1-3-2.6 6 6 0 0 1-1-3.5 9 9 0 0 1 1-3.7 8 8 0 0 1 2.6-3 6 6 0 0 1 3.6-1.1q1.4 0 3.2 1 2.4 1.1 3.1 2.8a5 5 0 0 1 .3 3.5l-2.7-.8a3 3 0 0 0-.2-2q-.4-.9-1.6-1.4a4 4 0 0 0-3.1-.3q-1.5.5-2.6 2.6t-.7 3.8a4 4 0 0 0 2 2.4q.8.5 1.7.5h1.8l.8-1.6zm-90.2-22.3 2-14 4.2.7 1.1 9.8 3.9-9 4.2.6-2 13.8-2.7-.4 1.7-10.9-4.4 10.5-2.7-.4-1.1-11.3-1.6 11zm-14.1-1.7 1.3-14 10.3 1-.2 2.4-7.5-.7-.3 3 7 .7-.3 2.4-7-.7-.3 3.8 7.8.7-.2 2.4z\"/><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"M216.5 191.3q0-2.2.7-3.6a7 7 0 0 1 1.4-1.9 5 5 0 0 1 1.8-1.2q1.5-.5 3-.5 3.1.1 5 2a7 7 0 0 1 1.6 5.5q0 3.3-2 5.3a7 7 0 0 1-5 1.7 7 7 0 0 1-4.8-2 7 7 0 0 1-1.7-5.3\"/><path fill=\"#f7ffff\" d=\"M219.4 191.3q0 2.3 1 3.6t2.8 1.3a4 4 0 0 0 2.8-1.1q1-1.2 1.1-3.7.1-2.4-1-3.6a4 4 0 0 0-2.7-1.3 4 4 0 0 0-2.8 1.2q-1.1 1.2-1.2 3.6\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"m233 198.5.2-14h6q2.2 0 3.2.5 1 .3 1.6 1.3c.6 1 .6 1.4.6 2.3a4 4 0 0 1-1 2.6 5 5 0 0 1-2.7 1.2l1.5 1.2q.6.6 1.5 2.3l1.7 2.8h-3.4l-2-3.2-1.4-2-.9-.6-1.4-.2h-.6v5.8z\"/><path fill=\"#fff\" d=\"M236 190.5h2q2.1 0 2.6-.2.5-.1.8-.5.4-.6.3-1 0-.9-.4-1.2-.3-.4-1-.6h-2l-2.3-.1z\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"m249 185.2 5.2.3q1.7 0 2.6.3a5 5 0 0 1 2 1.4 6 6 0 0 1 1.2 2.4q.4 1.4.3 3.3a9 9 0 0 1-.5 3q-.6 1.5-1.7 2.4a5 5 0 0 1-2 1q-1 .3-2.5.2l-5.3-.3z\"/><path fill=\"#fff\" d=\"m251.7 187.7-.5 9.3h3.8q.8 0 1.2-.5.5-.4.8-1.3t.4-2.6l-.1-2.5a3 3 0 0 0-.8-1.4l-1.2-.7-2.3-.3z\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"m317.6 210.2 3.3-13.6 4.4 1 3.2 1q1.1.6 1.6 1.9t.2 2.8q-.3 1.2-1 2a4 4 0 0 1-3 1.4q-1 0-3-.5l-1.7-.5-1.2 5.2z\"/><path fill=\"#fff\" d=\"m323 199.6-.8 3.8 1.5.4q1.6.4 2.2.3a2 2 0 0 0 1.6-1.5q0-.7-.2-1.3a2 2 0 0 0-1-.9l-1.9-.5-1.3-.3z\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"m330.6 214.1 4.7-13.2 5.5 2q2.2.8 3 1.4.8.7 1 1.8c.2 1.1.2 1.5 0 2.3q-.6 1.5-1.8 2.2-1.2.6-3 .3.6.7 1 1.6l.8 2.7.6 3.1-3.1-1.1-1-3.6-.7-2.4-.6-.8q-.3-.4-1.3-.7l-.5-.2-2 5.6z\"/><path fill=\"#fff\" d=\"m336 207.4 1.9.7q2 .7 2.5.7t.9-.3q.5-.3.6-.9.3-.6 0-1.2l-.8-.9-2-.7-2-.7-1.2 3.3z\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"M347 213.6a9 9 0 0 1 1.7-3.2l1.8-1.5 2-.7q1.5-.1 3.1.4a7 7 0 0 1 4.2 3.3q1.2 2.4.2 5.7a7 7 0 0 1-3.4 4.5q-2.3 1.3-5.2.4a7 7 0 0 1-4.2-3.3 7 7 0 0 1-.2-5.6\"/><path fill=\"#fff\" d=\"M349.8 214.4q-.7 2.3 0 3.8c.7 1.5 1.2 1.6 2.3 2q1.5.5 3-.4 1.4-.8 2.1-3.2.8-2.2 0-3.7a4 4 0 0 0-2.2-2 4 4 0 0 0-3 .3q-1.5.8-2.2 3.2\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"m374.3 233.1 6.4-12.4 5.3 2.7a10 10 0 0 1 2.7 1.9q.8.7.8 1.9c0 1.2 0 1.5-.4 2.2a4 4 0 0 1-2 2q-1.5.4-3.1-.2.6 1 .8 1.7.3.9.4 2.8l.2 3.2-3-1.5-.4-3.7-.3-2.5-.5-1-1.2-.7-.5-.3-2.7 5.2z\"/><path fill=\"#fff\" d=\"m380.5 227.2 1.9 1q1.8 1 2.3 1t1-.2q.4-.2.7-.8t.2-1.2l-.7-1-1.8-1-2-1z\"/></g><g stroke-opacity=\".5\"><path fill=\"#309e3a\" d=\"M426.1 258.7a9 9 0 0 1 2.5-2.6 7 7 0 0 1 2.2-.9 6 6 0 0 1 2.2 0q1.5.3 2.8 1.2a7 7 0 0 1 3 4.4q.4 2.6-1.4 5.5a7 7 0 0 1-4.5 3.3 7 7 0 0 1-5.2-1.1 7 7 0 0 1-3-4.4q-.4-2.7 1.4-5.4\"/><path fill=\"#fff\" d=\"M428.6 260.3q-1.4 2-1.1 3.6a4 4 0 0 0 1.6 2.5q1.5 1 3 .6t2.9-2.4q1.4-2.1 1.1-3.6t-1.6-2.6c-1.4-1.1-2-.8-3-.5q-1.5.3-3 2.4z\"/></g><path fill=\"#309e3a\" d=\"m301.8 204.5 2.3-9.8 7.2 1.7-.3 1.6-5.3-1.2-.5 2.2 4.9 1.1-.4 1.7-4.9-1.2-.6 2.7 5.5 1.3-.4 1.6z\"/></g></svg>","ca":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#fff\" d=\"M150.1 0h339.7v480H150z\"/><path fill=\"#d52b1e\" d=\"M-19.7 0h169.8v480H-19.7zm509.5 0h169.8v480H489.9zM201 232l-13.3 4.4 61.4 54c4.7 13.7-1.6 17.8-5.6 25l66.6-8.4-1.6 67 13.9-.3-3.1-66.6 66.7 8c-4.1-8.7-7.8-13.3-4-27.2l61.3-51-10.7-4c-8.8-6.8 3.8-32.6 5.6-48.9 0 0-35.7 12.3-38 5.8l-9.2-17.5-32.6 35.8c-3.5.9-5-.5-5.9-3.5l15-74.8-23.8 13.4q-3.2 1.3-5.2-2.2l-23-46-23.6 47.8q-2.8 2.5-5 .7L264 130.8l13.7 74.1c-1.1 3-3.7 3.8-6.7 2.2l-31.2-35.3c-4 6.5-6.8 17.1-12.2 19.5s-23.5-4.5-35.6-7c4.2 14.8 17 39.6 9 47.7\"/></svg>","ch":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"red\" d=\"M0 0h640v480H0z\"/><g fill=\"#fff\"><path d=\"M170 195h300v90H170z\"/><path d=\"M275 90h90v300h-90z\"/></g></g></svg>","cl":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M0 0h682.7v512H0z\"/></clipPath></defs><g fill-rule=\"evenodd\" clip-path=\"url(#a)\" transform=\"scale(.9375)\"><path fill=\"#fff\" d=\"M256 0h512v256H256z\"/><path fill=\"#0039a6\" d=\"M0 0h256v256H0z\"/><path fill=\"#fff\" d=\"M167.8 191.7 128.2 162l-39.5 30 14.7-48.8L64 113.1l48.7-.5L127.8 64l15.5 48.5 48.7.1-39.2 30.4z\"/><path fill=\"#d52b1e\" d=\"M0 256h768v256H0z\"/></g></svg>","cn":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><defs><path id=\"a\" fill=\"#ff0\" d=\"M-.6.8 0-1 .6.8-1-.3h2z\"/></defs><path fill=\"#ee1c25\" d=\"M0 0h640v480H0z\"/><use xlink:href=\"#a\" width=\"30\" height=\"20\" transform=\"matrix(71.9991 0 0 72 120 120)\"/><use xlink:href=\"#a\" width=\"30\" height=\"20\" transform=\"rotate(239 133.7 -44)scale(23.99992 23.99978)\"/><use xlink:href=\"#a\" width=\"30\" height=\"20\" transform=\"rotate(-98.1 185.6 -77)scale(24 23.9997)\"/><use xlink:href=\"#a\" width=\"30\" height=\"20\" transform=\"rotate(-74 255.4 -107)scale(23.99998 23.99972)\"/><use xlink:href=\"#a\" width=\"30\" height=\"20\" transform=\"rotate(-51.3 344.8 -141.8)scale(23.99989 23.99982)\"/></svg>","co":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#ffe800\" d=\"M0 0h640v480H0z\"/><path fill=\"#00148e\" d=\"M0 240h640v240H0z\"/><path fill=\"#da0010\" d=\"M0 360h640v120H0z\"/></g></svg>","cz":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#fff\" d=\"M0 0h640v240H0z\"/><path fill=\"#d7141a\" d=\"M0 240h640v240H0z\"/><path fill=\"#11457e\" d=\"M360 240 0 0v480z\"/></svg>","de":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#fc0\" d=\"M0 320h640v160H0z\"/><path fill=\"#000001\" d=\"M0 0h640v160H0z\"/><path fill=\"red\" d=\"M0 160h640v160H0z\"/></svg>","dk":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#c8102e\" d=\"M0 0h640.1v480H0z\"/><path fill=\"#fff\" d=\"M205.7 0h68.6v480h-68.6z\"/><path fill=\"#fff\" d=\"M0 205.7h640.1v68.6H0z\"/></svg>","eg":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><path fill=\"#000001\" d=\"M0 320h640v160H0z\"/><path fill=\"#fff\" d=\"M0 160h640v160H0z\"/><path fill=\"#ce1126\" d=\"M0 0h640v160H0z\"/><g fill=\"#fff\" stroke=\"#c09300\" transform=\"translate(-40)scale(.8)\"><path stroke-linejoin=\"round\" stroke-width=\"1.3\" d=\"m450.8 302.4 68.5 63.6-4.9-115.5c-.7-17.5-15.9-13.5-27-7.2-11.1 7.2-24 7.2-37.4 2.5-13.5 4.7-26.3 4.7-37.4-2.5-11-6.3-26.3-10.3-27 7.2L380.7 366z\"/><path id=\"a\" fill=\"#c09300\" stroke=\"none\" d=\"m393.5 246.5-4.8 112.3-8 7.2 4.9-115.5a24 24 0 0 1 7.9-4m9.6 8-4 94-8 8.2 4.8-108.5c1.6 1.6 6.3 5.5 7.2 6.3m8.7 7.2-3.1 78.4-6.5 6.3 4-89.4c1.6 1.5 4.8 3.8 5.6 4.7m9.5 4-3.1 66.8-6.3 5.1 3.1-74.3c1.6.7 4.7 2.4 6.3 2.4m8.8 0-2.3 55.7-6.5 6.3 2.5-61.3c1.5 0 5.6 0 6.3-.7\"/><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 900 0)\"/><path fill=\"#c09300\" stroke-width=\"1.1\" d=\"m453.2 315 9.6 43.8-3.2 3.2-3.3-2.5-5.4-39 2.3 39-3.2 4-3.1-4 2.3-39-5.5 39-3.3 2.5-3.2-3.2 9.6-43.7h6.4z\"/><g id=\"b\" fill=\"none\" stroke-linejoin=\"round\" stroke-width=\"1.3\"><path fill=\"#fff\" stroke-width=\"1.2\" d=\"m428.5 295.8-19.1 67.7 26.3 4 11.1-50.9z\"/><path d=\"m422.2 319 2.3 5.5 12.4-11.8\"/><path d=\"m430.8 305 2.6 24.3 7.9-10.4m-3.2 4 4.3 15m1.7-5.5-8.7 13.2m2.7 13.2-2.8-13.2-2.4-13.4-5.9 7.9-2.5-9.1-8.2 8.4 4.1 15.2 5.8-9.4 3.1 9.6 6-9.2\"/><path d=\"m415 362 5.3-7.5 3.4 11.5 4.8-8 3.1 9.6\"/></g><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 900 0)\"/><g stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.3\"><path stroke-width=\"2.4\" d=\"M450 393.8c20 0 39-1.6 50.2-4.7 4.7-.9 4.7-3.3 4.7-6.5 4.8-1.6 2.4-7.2 5.7-7.2-3.4 1-4-5.5-8-4.7 0-5.6-5.7-6.3-10.4-4.7-9.5 3.1-26.3 3.9-42.2 3.9-16-.8-32.6-.8-42.2-4-4.7-1.5-10.3-.8-10.3 4.8-4-.8-4.7 5.6-8 4.7 3.3 0 .8 5.7 5.6 7.2 0 3.2 0 5.6 4.8 6.5 11 3.1 30.2 4.7 50.1 4.7\"/><path d=\"M422.9 363.5c6.4.9 13.6 1.6 19.2.9 3.2 0 5.5 5.5-.9 6.3-5.5.7-14.3 0-19-.8a231 231 0 0 1-18.4-4c-5.6-2.4-1.6-7 1.6-6.4a105 105 0 0 0 17.5 4m54.2 0c-6.4.9-13.6 1.6-19 .9-3.4 0-5.7 5.5.7 6.3 5.6.7 14.3 0 19-.8 4-.8 12.8-2.3 18.4-4 5.6-2.4 1.6-7-1.6-6.4a105 105 0 0 1-17.5 4\"/><path d=\"M403 360.4c-4.8-.9-7 4.7-5.5 7.9.7-1.6 4-1.6 4.7-3.2.9-2.4-.7-2.4.9-4.7zm19.2 14.7c0-3.2 3.1-2.8 3.1-6 0-1.5-.8-4-2.4-4a3.4 3.4 0 0 0-3.2 3.2c-.7 3.1 2.5 3.6 2.5 6.8m22.7-9.1c4.7 0 4.2 6.3 2 9.5 0-2.3-4-3.2-4-4.8 0-2.4 3.6-2.4 2-4.7m52-5.6c4.9-.9 7.2 4.7 5.6 7.9-.7-1.6-4-1.6-4.7-3.2-.9-2.4.7-2.4-.9-4.7M478 375c0-3.2-3.2-2.8-3.2-6 0-1.5.8-4 2.4-4a3.4 3.4 0 0 1 3.2 3.2c.7 3.1-2.5 3.6-2.5 6.8zm-23-9c-4.7 0-4.2 6.3-2 9.5 0-2.3 4-3.2 4-4.8 0-2.4-3.6-2.4-2-4.7\"/><path stroke-width=\".9\" d=\"M404.7 362c1.6 0 4 .7 4.7 1.6zm7.9 2.4c.8 0 4 .7 5.5 1.6zm28.6 3.2c-1.5 0-4.7 0-5.5.7l5.5-.8zm-8.7 0c-.9-.9-4-.9-5.6 0zm62.8-5.6a8 8 0 0 0-4.7 1.6zm-7.8 2.4c-1 0-4 .7-5.6 1.6zm-28.7 3.2c1.5 0 4.7 0 5.6.7l-5.6-.8zm8.7 0c.9-.9 4-.9 5.6 0z\"/><g fill=\"#c09300\" stroke=\"none\"><path d=\"M403.3 374.6q-.8-.3-.6-1 .3-1 1-.8c.4 0 .9.6.9.8l-.4.7-.2.1q-.1.3-.7.2m55 3.9q-.4-.2-.6-.7c0-.4.6-1 1-1l.8.4q.5.6-.1 1.2-.5.3-1.1 0zm.3 2.5q-.5-.2-.6-.8t.5-.9l.4-.2.4.2q.6.2.7.8 0 .5-.7.8-.4.3-.7 0z\"/><path d=\"M407.8 370q-.7.1-1.2.6c-.6.1-1.4.5-2 0-.6-.1-1.4 0-1.5.8.1.7 1 1 1.6.6.4-.5 1.5-.9 1.7 0-.5.8-.4 1.7-.8 2.4q-.1.7-.5 1.3-.8 0-1.4.3a2 2 0 0 0-1.6.8q-.7.9-.9 2c.1.6 1 .8 1.6.9l2 .6 3.2.9 4.8 1.1.5.1c.7.2 1-.5 1-1l1-3.6c.2-.5.5-1.5-.4-1.3q-.7.6-1.6.8c-.9 0-.4 1 0 1.3q0 1-.5 1.8-.9.3-1.8-.2c-.5 0-1.7-.3-1.2-1l.5-1.8.5-2c-.4-.7-1 .3-1.5.4s-1.6.3-1 1c.6.4.2 1.1 0 1.7 0 .7-.8 1-1.4.7-.6 0-1.5-.5-1-1.1l.5-1.8.7-2q0-1 .6-1.8c0-.7.5-1.3.5-2q0-.4-.4-.4zm-3.7 7.3h.3q.3.3 0 .6l-.3.2q-.7 0-.6-.3l.3-.3zm-1 5q-.7-.5.3-1.3.4-.3.9.1.9.6 0 1.3-.2.3-.5.2t-.7-.2zm3 1a1 1 0 0 1-.6-1.1q.1-.6.9-.5.9-.1.9.7 0 .5-.3.7zm89.2 0q-.3-.1-.3-.5 0-.6.8-.9.9-.5 1.2.2.5.8-.1 1.2-.2.4-.8.3-.7 0-.8-.2zm-85 1.2q-.6-.1-.6-.8 0-.4.2-.6l.6-.2.6.1q.8.6.3 1.2t-1.2.3zm21.8 1-.2-.3q0-.9.2-1.7l.2-1.5.4-2.8q0-.8.2-1.4 0-1.2.2-2.2c0-.3.3-1 .6-.6q.6.8 1.4 1.5c.4.3 0 .7-.3.8q-.6.3-.5 1l-.2 1.2-.2 2-.1 1.8-.2 1.2q.1.7-.4 1.1-.6.3-1-.1zm29.7-9.8-1.3 1.2c-.6.5.5.7.6 1.1q.3.9.2 1.8.3.9.2 1.7c0 .7-.8.5-1.2.9q-.6.4-1 1l-.4 1.6c0 .5-.3 1 0 1.4l.1.2h.5l1.5-.1 3.7-.3 2.2-.2c.6.1.9-.5.9-1-.4-.7-.1-1.4-.4-2l-.2-2.2c0-.6-.7-.8-1-.4l-1.2.9c-.3.6.6.6.8 1l.1 1.5c.1.6-.5.6-1 .7q-.9.4-1.5-.3-.2-.7-.2-1.5l-.3-2.7-.3-3.2c0-.5-.1-1.2-.8-1.1m-.6 8.2h.3v.8l-.3.1-.4.1h-.2q-.3-.3.1-.8zm-30-9.2c-.3 0-.8.7-1.2.6-.9.1-.8 1-.1 1.3v.8c.1.8-.4 1.5-.3 2.3l-.3 2.6q-.4 1.4-.4 2.7c-.1.8-.7.5-1.2.3v-1q0-1.2-1.2-1.2-1-.1-.8-1.1.6-.4 1.5-.3c1 .2.9-1.1.4-1.6s-1.2-1-1.4-1.6q0-1.3-1.2-2.1c-1.1-.1-2 .8-2.3 1.8q-.8 0-1.4.4c-.7.2-1.7 1.4-.7 1.9.5.1 2.2.5 1.4 1.2q-.7 1-1.9.6c-.7 0-1.5-.4-1.5-1.2q0-1.2-.4-2.3c-.2-.8-1.1-.6-1.2.2q-1 1-.1 2 .3 1.2-.3 2.2c-.2 1-1.2 1-1.9 1.2-.3.2-1.6 0-1.1.7a4 4 0 0 0 2.4.3q1.2-.2 2-1.4c.5-.5 1.4-.2 2.2-.2.7 0 1.5.5 2.3.1.2-.5 1.2-1.5 1.5-.5q.2 1.4 1.5 1.2c.9 0 .5.6.5 1.2q.2 1.3 1.5 1.8h.8q1.2-.3 1.8-1.4l.5-2.2.4-3.4q.3-1.5.4-3.2l.3-2.3q0-.6-.5-.4m-6.7 4.1q.2 0 .2.5t.5.8v.3l-.8.2q-.7 0-1.2-.5l-.2-.2.3-.2.5-.5q.4-.4.7-.4m66-7.9-1.7.3c-1 0-1.5 1-.5 1.6.6 1.5 1.5-.4 2.5-.2 1.4.2 1.5 1.8 1.8 3q.1 1.6.7 3.3c1 1.1-.7 1.8-1.4 1-.6-.7-2-1.5-2.7-.6-.9.4-1 1.6-1.7 2-1.2.3-1.3-1.2-2-1.8-.6-.9-1.7-1-2.6-1.2-.4-.9-.2-2.4-1-3-.8.3-2.2 1.7-1 2.4 1 1-.5 1.4-1 2q-1.1 1.4-1 3c-1.3.7-1.5-.8-1.7-1.7 0-1.1-1-.8-1.7-.4q-1.3.8-2 2v2c.2.9 1.2.5 1.8.4 1-.4 1.4.7.6 1.3-.6.6-2.2.3-2 1.4h1.6c1-.3 2.2-1.1 2.3-2.3.2-1 1.7-.9 2.5-1.1 1-.3 2.3-.4 2.6 1 .7.7 2.2 1.5 3 .5a2 2 0 0 0 1.1-2.3c-.1-.8 1.3-.8 1.7-.3.5.8 2.1.6 2.9 0s1-1.6 2.2-1.6l5.4-1.5c1.4-.3-.2-1.2-.6-1.8-1-.5-2 1.7-3.2.6-1-.7-.9-2-1.2-3.1-.3-1.4-.2-3-1.2-4q-1-1-2.5-.9m-6.8 9.5.5.2q.6.4.7 1 0 .2-.3.3l-.5.2q-.5-.1-.7-.5v-.4q-.3-.5 0-.6zm6.5.4q.5 0 .8.3.2.5-.4.8l-.5.2-.4-.3q-.3-.1-.3-.4.1-.5.8-.7zm-9 0q.3 0 .4.2.3.2.3.6v.6q.2.3-.6.2c-.8-.1-.7 0-.7-.6q0-.5.3-.7t.4-.2zm-5.4 1.5.4.4q0 .4-.2.6-.6.2-1 0v-.1q-.3-.2 0-.3v-.1l.2-.3zm9.2 1.2.5.1v.6h-1.2l-.1-.2q0-.3.2-.4zm-17.1 4.8q-.3 0-.1-.2.3-.4.8-.6a3 3 0 0 0 1.4-1l.4-1-.1-1.4a2 2 0 0 0-.8-1q-.6 0-.8-.6l.4-.9.6-1.2q.6-.3.8.2l.5 1q.4.4.6 1l.4 1 .2 1.3-.2 1.6-.6.8q-.4.5-1 .7-.4.3-.9.4H468zm-6.9.4q-.3-.2-.3-.6c0-.4 0-.3.3-.6q.4-.6 1.4 0t1 .1q.2-.4 1-.5l.5.2q.3.2.3.7t-.3.8q-.3.2-.7.2a1 1 0 0 1-.8-.6q0-.4-.2-.1l-.2.1q-.4.1-.8.5l-.5.1q-.4 0-.7-.3m-19.8-8.9q-1.2.1-1.5 1.3c.2.7.8 1.5.4 2.2.3 1-.8 1.4-1.5.9q-.4-1.5-1.3-3c-.8-.2-1.1 1.1-1.7 1.6.3.7 1.1 1.4 1.2 2.3q.1 1.6-1.1 2.4c-.7.7-1.7.5-2.5.6-1 .6.7.8 1.2.8q1.6.3 3-.8c.7-.3.6-1.7 1.5-1.8l4.8.3c.8.2 2.1-.1 2.7.5 0 1 1 1.8 1.9 2.2.5.2 1-.5 1.5-.6 1-.3.7-1.5 1.3-2h5c.2 0 .3-.5.6-.7l-.2-1.9c-.3-.8 0-1.8-.5-2.5-.9-.2-1.6.5-2.4.6q-1.6.7-1.8 2.3c-.5.9-1.4-.2-1-1l-.1-1c-.5-.5-1.4-.3-2.1-.4l-3-.2q-1.5.1-2.7-.1c-1 0-1-1-1-1.8zm2 3.7 1 .1h1.3q1.5.3 3 .2.3 0 .6.4v2q0 .5-.2.8l-.2.2-.7-.5v-1.4l-.7-.3-2.6-.1-2-.1q-.5 0-.9-.4-.2-.4.4-.7zm11.3.3q.2 0 .2.3l.2.5q0 .2-.2.2-.8.3-1.2 0l.2-.6z\"/></g></g><path stroke-width=\"1.1\" d=\"M450 327.2c32.6-25 29.8-61.8 29.8-61.8l-2.5.2c-6.9 0-23.2-4-27-8.9-4 4.5-20.8 9-27.6 9l-2.5-.3s-2.9 36.7 29.8 61.8z\"/><path stroke-width=\".9\" d=\"M477.2 268h-.8c-6.2 0-20.6-3.1-26.2-7.9-5.8 4.4-20.5 8-26.6 8l-.8-.1a73 73 0 0 0 2.6 18.7 71 71 0 0 0 24.6 37.1 71 71 0 0 0 24.6-37.2 73 73 0 0 0 2.6-18.6z\"/><path fill=\"#c09300\" stroke=\"none\" d=\"M439.4 265a62 62 0 0 1-16.6 3l.1 4.1a73 73 0 0 0 2.5 14.5 71 71 0 0 0 14 26.8zm20.6 0v49.2a71 71 0 0 0 14.6-27.6 73 73 0 0 0 2.5-14.5l.1-4h-.8c-3.8 0-10.4-1.2-16.4-3.2z\"/><g stroke-width=\"1.3\"><path stroke-width=\"1.2\" d=\"M462.3 253c.7.1-.9-3.5-.9-3.5 1.8 1.8 8.4 2.3 8.4 2.3-4-1.8-8-15.1-7.5-25.8.4-10.6-1.5-14.8-3-16.4-2-2-8.5-3.8-12.7-4-2.5-.1-2 1.8-2 1.8-4.5-1.1-9-1.6-11-.2-1.8 1.2-2.2 7.5-.8 6.4 3.3-2.7 6.2-.2 8.2 2.7 1.8 2.5 1.7 9.7-.9 18.2a60 60 0 0 1-10 17.7c4 0 9.6-3.5 9.6-3.5l-1.3 5.5c4.2-2 7.5-5.1 7.5-5.1l4 4.2c1.3-1.8 4-4.2 4-4.2s3.3 3.5 8.4 4z\"/><path fill=\"none\" d=\"M446.1 227.6s-2.2 16.4-6.4 21m10-21.5s-1 16.7-3.8 22m6.9-21.3s0 18.2 1 21.3m3-20.4s.8 15.3 4.6 20.8\"/><path fill=\"#c09300\" stroke-width=\".3\" d=\"M442 219.6a8 8 0 0 0-1-3.3c-2-3-4.9-5.4-8.2-2.7 0 0 1.1-3.5 3.6-3.6 1.8-.1 6.1 1.4 9.9 7.8 0 0-2.8-.6-3.5 0-1.2 1-.7 1.8-.7 1.8z\"/><path fill=\"#c09300\" stroke-width=\".3\" d=\"M432.4 209.3q.4-1.6 1.3-2.1c2-1.4 6.4-1 10.9.2 0 0-.4-1.9 2-1.8 4.2.2 10.6 2 12.6 4a8 8 0 0 1 1.5 2.4c-1-1.4-3.8-1.3-4.5-1.2-1 .1-1.7 0-3.1.4q-1.2.3-2.3.8c-.4.4-.8 1.6-1.4 1.6-1 0-1-.2-1.3-.5q-.4-1-.9-1-1.6.2-5-2.5c-2.3-1.8-3.2-2.2-6-2-3 .2-3.8 1.9-3.8 1.9z\"/><circle cx=\"448.8\" cy=\"210.7\" r=\"1.2\" stroke=\"none\"/></g></g></svg>","es":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAADACAMAAADcM01UAAAAkFBMVEXU08XMzMzHx8fCwsLxvwDHt4PuvQDmtgDgsgDMsADKqivVqQDAqwDInxHCigS2sqmwqai2oxqylU2xlwCloICkjBecjDKAiEfHdTrBY0GidCihXBSqSRakNhKlKBaoGxeOegWQaRJ3cCc8ZnKSSRiTLRd/PQsnQnetFRmtFRiqFRugFRiqFBilExeeEhaNEBNrwf85AAAJWElEQVR42u2dDXOivBaAt9oCFYxoogxNgCAE4eXr//+7e5JAq927787O3rlT6DkqMLZ05jw5XzmJ9sc/31x+IAAEgAAQAAJAAAgAASAABIAAEAACQAAIAAEgAASAABAAAkAACAABIAAEgAAQAAJAAAgAASAABIAAEAACQAAIAAEgAASAABAAAkAAKwTw/M0FASAABIAAEAACQAAIAAEggP+VOL7zrQE4lAbO9wYQ0G8N4Nmn3rd2Af92LtxvCsBxHNc5gwv4jut+PwDu7nTcnU77ooj2cD7udu63AeC6juOfjlTL8Swv5oKedp6rbWLlABxvp8f7eJLUd13Xk/QiqQdXPpXm/ZP/pRn8LQBvGvhTHsxJ4DSnAXo1tnA8fmVn+EsA3oukeuS9k3SnOvDM5FQL+vJkLIGeX5yVAnB2Uprhdi9wdlzCBT8zKgQhYPe+vDgWxHm3UgD7i9EfLOAiCRFpV9fl8cc5qZu+TQiVF9f4P5iCt04Au7N0HZ8nWV+eZVuDdOLCAIAWJd9UmwriPXtf2AT+EgClRPRG8TI357rNaTVdVWWnf5KJQFJvtQAmvbuEqgbO/SADPuj3OkVVZ342SHpcKQBvJ8t6UjIoy6HuOS0rePXdkPCAT3BySAerzQJVUoOaQ56PVSDbhAbVmAdUtfpCagJ9nfDVZoFnDwqdRCZ9GdCx4qo8KTHIVIxMKV6NFEyhlAn8jrveUtivaFDGqcpK3nepHHpBEwgEaTfwMlVpzAOZf+Um2d/PBXilUlX2rZQ5l6WUfMglnHmeA41SpWXO1zcZ8r37JijloG1elrmEk5wF3tBM+EMGdJxVAHClvNfEo5PO1zM907Ks6IXK6/TeYwVA5QoAEJnklZDeAxAKs8Lieg6OGgY9BudrERwvNL8Lf45PiJTE/1oR4c8BkKGqINWp9C6yk1LPe43hWzFjD6L8O7/hPKnyhHN/2QDkWOUaQXWnhyOlfmuWAR6jqqpc0ntycI+WkS7cBWR1ra7XitzHNsh17wAGkHYY0pLn8vXBdvJrDvfKhccA19cGUEnPMUnwQyD6WYmi6AJy+pCd+V1Pm0mV++6yAcDSlxGqXcBLu5+k3LzLdjqHnmmWTTfSpQOYxAKwc6G66/tuuiyfZtlEbGMuDhbALMsG4M0J3r0HUOZ5cg9AK74NL3m03R5CC8Cdy4WFZ4FneqeGBdD0ncpzNdkAAAgP0YaFcchOOWPsYAFAAWHJLb0QOtrAdgeghcQIkTG3raDyaQNaP4VxxMIwPIRsOwHwdVy8XI5LB7CD0LYNTVybAeRSA5DvALTqTwetfwi/OcWAZ++g42G4WzyAjXbvwwcA6AfKCkohmSeddYFtyEJm9A+37OkDAFyuDICrAfTg1/CAZz4BeNqC9jGoryF8CwDzFPgdwFPIYhbHbLPVmXDlALpqBlDNLhDp0Yfh30JA3K4eQJ3KQncDIrs2AgAOMeSBbWjsn4WrAwAhjkUxVP8wt7cArrdIyuKWzwA2oTF8EwaNBfg+4VzEJ+CydAAeLAEmvUhExkXXj2oCUDwA0EHgycZAZoZ9TJMsIXVCEgGLZe6CAZBU8IQ0DRG1ELAeYAHMMaDVS0PVYWvqYBhsEwU0gKEmoiF1yjNCmj4liwVA+ppzGPssSTORTADacQYw9rodoGKmw0BoC4EJQMbBbFJYOBdgBz1ZKAAXBj0FXwZXZgG0+IQCAI1JAkVh0sDQQUukz6JNFGv94aBNIFSwY8Df68wQC4BQC3exFtAnb9vNnAVcP5kARLeb0b+/aWk7BtF/u9H1kJkOmybIlAXeEt4t1QIg7alebbWHh1wr4d4BuGoXuBWgf3Fr24NRnMXhRz+AWwDwF1pvsUEQljsTA4ANA7cA6uG9G9qPNwoA4NVFphOip4UTAD4MoQGQ1B1fbhZweGstgI1qBjBLN3a36/l6u9LrrS+3U1foHYAaLQDVcmfRTVFbCTLVCefZGx9kgHqgMK9B2RxghcEOKtEpXR1BJeguvxTehHFW61DuQxNgrChsDoAAMFYQAq+3C7xug22PTwLrIw4kkCw+bNZRCse65MugJ+TnQdnxV9mrgA5D1ekIeNZxsB+TJk0bKBibpKn1ApGf6ZIhXnwpDJvClG789EL3xB4B5BAEbwVEAABQEhIERMsrb8wKmW+2U/WKf6nFwT8F4POsM2ow0xN8BAC7om4mAoABEJKZpyCBqO0Soc9KjaDJvtLq4B8CsD1AUH+aDn8CIMd/bCE0iKZpOMmaDAhkEwDvsGXGeup0sXWA39Z9GoebuR/gywcAgRpqWBZsBsWJ0BYApb+u/mcAkBVZnPZ16y+3EkzIfUPkM4BkrBQsDHOSaOPXT7jgdwB0GiRJ6i4VgFMO/w6g40E1pCSpQXvBBSgPPYDPAIbSWW4QTMVvALxWdQNun2WEgw9kTXMXAywAkfoLToOE/x4AWD4oT6LCpMGHGKABcLLoltjz7wFMASAqBASDn13g2VtPV/hXLpDW0ALUITCFRPjZBdbUFv+lCzTgBQl0D0kGzrA2AFu95h/+t0LIZoFO2BpQkBRsgN+lQbhz+QAcejFidHKqnwGUfcO19WfaA3RF0NSla5fHjdDFAzAy7XPI6WcAlLW1eCVQ8xMIBTV/5XMHiEp7q7OSPUKBVeozgPwQ18krSRv4nEDdpPxV1HYdIFjJHiH6aiWw1UxePQKoYE2wrTMSkDTRyyAwIere7KfngunORQNwfLsJ9izl2YbBRwB9xF4Y62HQQQJ4QCOotCFQ32I31PoL7gkeiwhWRm/maL8nwC3Lu9kgO7yUQABsIIEEmKUp7B+x68j2lps5HpcLAD4dD8LMMbJzOreU+dwPYJvDi3p52Zh5fwMfI+vaN1v3uZG5xd65XzIApofwzgJ0WIBdslKqODpoOPCjooANIqptVclnXY0FsMIeFw1A9z0Le/yY1Xv7CzvoCrGYBLaGHNhp/1H1u8XdnQsG4EcXf3+JzPHqPm6ihg2ELy9hWMA6wAt8dcD+Yc7jXi97X9+oj0ueDv9bAIevDvH8/W7ve+4vvjTB+e3fwK/SQgAIAAEgAASAABAAAkAACOD/AwD/wwQCQAAIAAEgAASAABAAAkAACAABIAAEgAAQAAJAAAgAASAABIAAEAACQAAIAAEgAASAABAAAkAACAABIAAEgAAQAAJAAAgAASAABLA6+Q8RlmcEHstjnQAAAABJRU5ErkJggg==","fi":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#fff\" d=\"M0 0h640v480H0z\"/><path fill=\"#002f6c\" d=\"M0 174.5h640v131H0z\"/><path fill=\"#002f6c\" d=\"M175.5 0h130.9v480h-131z\"/></svg>","fr":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#000091\" d=\"M0 0h213.3v480H0z\"/><path fill=\"#fff\" d=\"M213.3 0h213.4v480H213.3z\"/><path fill=\"#e1000f\" d=\"M426.7 0H640v480H426.7z\"/></svg>","gb":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#012169\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"m75 0 244 181L562 0h78v62L400 241l240 178v61h-80L320 301 81 480H0v-60l239-178L0 64V0z\"/><path fill=\"#c8102e\" d=\"m424 281 216 159v40L369 281zm-184 20 6 35L54 480H0zM640 0v3L391 191l2-44L590 0zM0 0l239 176h-60L0 42z\"/><path fill=\"#fff\" d=\"M241 0v480h160V0zM0 160v160h640V160z\"/><path fill=\"#c8102e\" d=\"M0 193v96h640v-96zM273 0v480h96V0z\"/></svg>","gh":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#006b3f\" d=\"M0 0h640v480H0z\"/><path fill=\"#fcd116\" d=\"M0 0h640v320H0z\"/><path fill=\"#ce1126\" d=\"M0 0h640v160H0z\"/><path fill=\"#000001\" d=\"m320 160 52 160-136.1-98.9H404L268 320z\"/></svg>","gr":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#0d5eaf\" fill-rule=\"evenodd\" d=\"M0 0h640v53.3H0z\"/><path fill=\"#fff\" fill-rule=\"evenodd\" d=\"M0 53.3h640v53.4H0z\"/><path fill=\"#0d5eaf\" fill-rule=\"evenodd\" d=\"M0 106.7h640V160H0z\"/><path fill=\"#fff\" fill-rule=\"evenodd\" d=\"M0 160h640v53.3H0z\"/><path fill=\"#0d5eaf\" d=\"M0 0h266.7v266.7H0z\"/><path fill=\"#0d5eaf\" fill-rule=\"evenodd\" d=\"M0 213.3h640v53.4H0z\"/><path fill=\"#fff\" fill-rule=\"evenodd\" d=\"M0 266.7h640V320H0z\"/><path fill=\"#0d5eaf\" fill-rule=\"evenodd\" d=\"M0 320h640v53.3H0z\"/><path fill=\"#fff\" fill-rule=\"evenodd\" d=\"M0 373.3h640v53.4H0z\"/><g fill=\"#fff\" fill-rule=\"evenodd\" stroke-width=\"1.3\"><path d=\"M106.7 0H160v266.7h-53.3z\"/><path d=\"M0 106.7h266.7V160H0z\"/></g><path fill=\"#0d5eaf\" d=\"M0 426.7h640V480H0z\"/></svg>","hk":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><path fill=\"#ec1b2e\" d=\"M0 0h640v480H0\"/><path id=\"a\" fill=\"#fff\" d=\"M346.3 103.1C267 98 230.6 201.9 305.6 240.3c-26-22.4-20.6-55.3-10.1-72.4l1.9 1.1c-13.8 23.5-11.2 52.7 11.1 71-12.7-12.3-9.5-39 12.1-48.9s23.6-39.3 16.4-49.1q-14.7-25.6 9.3-38.9M307.9 164l-4.7 7.4-1.8-8.6-8.6-2.3 7.8-4.3-.6-8.9 6.5 6.1 8.3-3.3-3.7 8.1 5.6 6.8z\"/><use xlink:href=\"#a\" transform=\"rotate(72 312.5 243.5)\"/><use xlink:href=\"#a\" transform=\"rotate(144 312.5 243.5)\"/><use xlink:href=\"#a\" transform=\"rotate(216 312.5 243.5)\"/><use xlink:href=\"#a\" transform=\"rotate(288 312.5 243.5)\"/></svg>","id":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#e70011\" d=\"M0 0h640v240H0Z\"/><path fill=\"#fff\" d=\"M0 240h640v240H0Z\"/></svg>","ie":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#fff\" d=\"M0 0h640v480H0z\"/><path fill=\"#009a49\" d=\"M0 0h213.3v480H0z\"/><path fill=\"#ff7900\" d=\"M426.7 0H640v480H426.7z\"/></g></svg>","in":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><path fill=\"#f93\" d=\"M0 0h640v160H0z\"/><path fill=\"#fff\" d=\"M0 160h640v160H0z\"/><path fill=\"#128807\" d=\"M0 320h640v160H0z\"/><g transform=\"matrix(3.2 0 0 3.2 320 240)\"><circle r=\"20\" fill=\"#008\"/><circle r=\"17.5\" fill=\"#fff\"/><circle r=\"3.5\" fill=\"#008\"/><g id=\"d\"><g id=\"c\"><g id=\"b\"><g id=\"a\" fill=\"#008\"><circle r=\".9\" transform=\"rotate(7.5 -8.8 133.5)\"/><path d=\"M0 17.5.6 7 0 2l-.6 5z\"/></g><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" transform=\"rotate(15)\"/></g><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" transform=\"rotate(30)\"/></g><use xlink:href=\"#c\" width=\"100%\" height=\"100%\" transform=\"rotate(60)\"/></g><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"rotate(120)\"/><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"rotate(-120)\"/></g></svg>","it":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#fff\" d=\"M0 0h640v480H0z\"/><path fill=\"#009246\" d=\"M0 0h213.3v480H0z\"/><path fill=\"#ce2b37\" d=\"M426.7 0H640v480H426.7z\"/></g></svg>","jm":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\"><path fill=\"#000001\" d=\"m0 0 320 240L0 480zm640 0L320 240l320 240z\"/><path fill=\"#090\" d=\"m0 0 320 240L640 0zm0 480 320-240 320 240z\"/><path fill=\"#fc0\" d=\"M640 0h-59.6L0 435.3V480h59.6L640 44.7z\"/><path fill=\"#fc0\" d=\"M0 0v44.7L580.4 480H640v-44.7L59.6 0z\"/></g></svg>","jp":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M-88 32h640v480H-88z\"/></clipPath></defs><g fill-rule=\"evenodd\" stroke-width=\"1pt\" clip-path=\"url(#a)\" transform=\"translate(88 -32)\"><path fill=\"#fff\" d=\"M-128 32h720v480h-720z\"/><circle cx=\"523.1\" cy=\"344.1\" r=\"194.9\" fill=\"#bc002d\" transform=\"translate(-168.4 8.6)scale(.76554)\"/></g></svg>","ke":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><defs><path id=\"a\" stroke-miterlimit=\"10\" d=\"m-28.6 47.5 1.8 1 46.7-81c2.7-.6 4.2-3.2 5.7-5.8 1-1.8 5-8.7 6.7-17.7a58 58 0 0 0-11.9 14.7c-1.5 2.6-3 5.2-2.3 7.9z\"/></defs><path fill=\"#fff\" d=\"M0 0h640v480H0z\"/><path fill=\"#000001\" d=\"M0 0h640v144H0z\"/><path fill=\"#060\" d=\"M0 336h640v144H0z\"/><g id=\"b\" transform=\"matrix(3 0 0 3 320 240)\"><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" stroke=\"#000\"/><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" fill=\"#fff\"/></g><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 640 0)\"/><path fill=\"#b00\" d=\"M640.5 168H377c-9-24-39-72-57-72s-48 48-57 72H-.2v144H263c9 24 39 72 57 72s48-48 57-72h263.5z\"/><path id=\"c\" d=\"M377 312c9-24 15-48 15-72s-6-48-15-72c-9 24-15 48-15 72s6 48 15 72\"/><use xlink:href=\"#c\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 640 0)\"/><g fill=\"#fff\" transform=\"matrix(3 0 0 3 320 240)\"><ellipse rx=\"4\" ry=\"6\"/><path id=\"d\" d=\"M1 5.8s4 8 4 21-4 21-4 21z\"/><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"scale(-1)\"/><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"scale(-1 1)\"/><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"scale(1 -1)\"/></g></svg>","kr":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M-95.8-.4h682.7v512H-95.8z\"/></clipPath></defs><g fill-rule=\"evenodd\" clip-path=\"url(#a)\" transform=\"translate(89.8 .4)scale(.9375)\"><path fill=\"#fff\" d=\"M-95.8-.4H587v512H-95.8Z\"/><g transform=\"rotate(-56.3 361.6 -101.3)scale(10.66667)\"><g id=\"c\"><path id=\"b\" fill=\"#000001\" d=\"M-6-26H6v2H-6Zm0 3H6v2H-6Zm0 3H6v2H-6Z\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" y=\"44\"/></g><path stroke=\"#fff\" d=\"M0 17v10\"/><path fill=\"#cd2e3a\" d=\"M0-12a12 12 0 0 1 0 24Z\"/><path fill=\"#0047a0\" d=\"M0-12a12 12 0 0 0 0 24A6 6 0 0 0 0 0Z\"/><circle cy=\"-6\" r=\"6\" fill=\"#cd2e3a\"/></g><g transform=\"rotate(236.3 191.2 62.2)scale(10.66667)\"><use xlink:href=\"#c\" width=\"100%\" height=\"100%\"/><path stroke=\"#fff\" d=\"M0-23.5v3M0 17v3.5m0 3v3\"/></g></g></svg>","ma":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#c1272d\" d=\"M640 0H0v480h640z\"/><path fill=\"none\" stroke=\"#006233\" stroke-width=\"11.7\" d=\"M320 179.4 284.4 289l93.2-67.6H262.4l93.2 67.6z\"/></svg>","mx":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAADACAMAAADcM01UAAAAkFBMVEX///////7+/fr5+vj19Ozw7uL95uj65uju6unw6M/y1pzf5d/W2MbNy7jRxpC01OSuz8S1zsl0yNngumjiqGm3uZSuq4bbmF22kmbBfk2qdEKbonKSlWFZr7plkXWGhFSPc1E1fnsQfoGIaE0AaEfbUlPOESacYjeWVit9VjiDRyN1PB1VRDNYNCBPLRk6Jxyh31ZrAAAIOUlEQVR42u3bXXOjOhIGYD5nDEjYMUgIAcaEyfIp+P//bl/hnHNqt2pudmsuQppkXJmUc6HHre5WGzu//sR1c/7A9fNff+JyCIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAACIAA/h8AX/T981lXIviWAK5Uo8rzohzGSfFvCMCKwYy6LIdhGOf5mXwrAJ8xhw3juC0zrmEexmHiQfJtAHigFI+Y0FpDwOz7CgRd8vMD+IGHx1Smg1YqTyM1aETAtu/bVD57dTk7ABMigoIqi1LjQa2Jtglg27dtm/Z1HJJzAyRcsADrz5UetC70YHqlR8TAvo3Pddl3PbEzA7ipEH7olkrNixmQ/8d5RSIsAbAvw75BYOwvp46ASvCQxake1HSEwDiaYSjnZd/mAQ/Lto9P/8QAoRA8zeIsK7J8LscCPcBkARABZkUuhICZ5YkBAikl1l+URRagA8yLdVmHuTyWvu7zEQPLmJy4CghZZbHMisiJclVMyhhk/gErH1ez7cuyL8bo+sx9gOdFRamy2OGl1sO4mGXE+hH/627Df9tm9Ibs3J2gz6RKnbRAKzAsy4xOcNmHaXklgG0ZfpMFzgMQykqHUY5LP+d93WZE/ogqYPSIUrDo32SBrw7ghr73mQZExRwxqWfxnHAKQPU3epqWUuMwoOdJT+P8dE8H4KH2ZdahkkJyxx0GNWIOgB4YPdA4zcM0KoN9MJhlmfRcny8CAJCKxJFS4NFJtC7nctDo/dbNTPNc6mXYptmU8zSaZbuccAsEEefcq0RlNzgAEAHlgJOwQeafUQq2dTbaDCMeRiNPmQQ99IHohY+fbR+Mb4PlGyRAHA4GMywIgXlZURurUwIwhED1OfyrcBoeem22aZuNUomcl6eZDa4ZMbHUpwTgnEWVUkcx4M9ZTdu6bEj/43OvnUBXfFLr06hNnhVAYA4o5aAzlWVBgOZv2SczaT2t24T2oHefYhJGLmI72RY42hpUdp6mmIjoociKIg3myQzGTFOh+n1b8QyJDNFj+bM05rVPglMA8NrGcxy7TiC45H5aqtT2BGh+jEbzU9hWYLMrFm5ftYucK2OOmYBf+ScA4LLGFMwJM2z9BE0QYiFuq6KIUtv+KY1R4GYvaVMDTx5TNdfrZFMm4y0PvzzApW3ro/LnH4U9BkjmpdmKEpjJUk/bMtl56DptxrxmYaJv+3btj9e/amvx5QESrCJx7btAH/lxEJA2/rNCZ6nKh3XdJwyDZnsUXF4bn7dVu7b2zFS3dVt9eYDaRgCi+0ceRxiIoxGqi0xbg7LEQBjrx9cCADSCW+0ftaJq2xdd1covD+BjGWHg2p0fi9sbhoJCrX2aRWVp3xTsMQfDFGxHO4imYJmwDW5Mivo4NrV1/fVzgBPUVRTbBBeprmuSUHDP8ZERuUID8FQc4W/fGUNPbNAWrdy+d3CTx9zklTy+egRksYhtBXCu791717zZkpjn9hdSXkLucFsFMRPGERDzwBnHIMYqbstGVAXB1wdw41QcAeC8vXe4Gh+/QhH85xk9gn/v1yMGcG296zyO0LGJwjtDJ5i+2jq3e8fVsNuN/2R/9Yd2oes0TSyxAnYbrMKPX9MAHvneKVphxl9T3gsEuqbpOsmkn7x1j9sbVhpEcTZksc+qR189hPvjR4qmEV2jaN1znAVCUbf8KGd+0703NhM8moZBonk0yUPhXSJ7HfsEIHlh1+/X6AJCdpazAHqB1y7wLw22QXd82R8ej7XF4tsWj5UTJLdbFH/Edlxw9A/nOAw5HCHQ/vViss5uhL8REAVr9qu539t6ZTdsjzj+YZ/W1n3bipMch20I9MdZxwlxc8Dt8UA1PBTsv1+/sCHeH033eMP6358vqbru/6ML+trzgEBULYttPGdx7Due69+OrfAZAo/342ckhaNM2D/wBM4B4jQDkQCbgGV2a0dZ1lx953q9OrfH0Rbg+swIj0PEtgBuFiNqpH+ikZjHRHqsx7vcm+aeNHewBL5/CbD+9+6WBBf7+nfd6y+9lPPwTDNBD5leiuSohe7VvurN9VIURV7k2PddmtqKH1yi6Kj8zMPcII7cMw1FowhHm7ZNkAOv9+Z12fUXBQJ/LQvmX5J7k9kOwGE1b0UQZe7JpsI2r1W1k1zv15dBkVuAdl11Xtj/329HnmRoCmoeOO7ZxuICpaDHoCNBLvBtJngBIA7yAyC5HkkitOuv2/O9O+yERz/EXZvcIhsD6lMAj+rIClfHCxyJMVj13xXwHG+McGH72yCLnDiK7/cG90h9hkBZNPdrcrugSroV9glmSGcECCuJl5engRPEkedfpLK3Spa4T+apXuGPmwi43QEiPOstMmEYc9wrzBMmfJsI7q+KcL84vqxx9nGl9E99rzD6gZShx2sx+8Y8xPOT5HLxbVbE645vmcRxdOqbpb0owEuNteKsV8m6ety4koJhAt5OqJII/Tg8+ecFgjBhtayAUHEmqluqZMLrV+2rhP8tPjEiOMa+UoZS3H69fRQYlNuw+F3uO+VHZhgPuI/5T5d8qPyDC8fjgoff7lNjrLt85N3t5wd3vucHJy/Oz9wJbg/66CwBEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEAABEMD/fv0bGxNjvPd2AYsAAAAASUVORK5CYII=","my":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g clip-path=\"url(#a)\"><path fill=\"#c00\" d=\"M0 0h640v480H0z\"/><path fill=\"#c00\" d=\"M0 0h640v34.3H0z\"/><path fill=\"#fff\" d=\"M0 34.3h640v34.3H0z\"/><path fill=\"#c00\" d=\"M0 68.6h640v34.3H0z\"/><path fill=\"#fff\" d=\"M0 102.9h640V137H0z\"/><path fill=\"#c00\" d=\"M0 137.1h640v34.3H0z\"/><path fill=\"#fff\" d=\"M0 171.4h640v34.3H0z\"/><path fill=\"#c00\" d=\"M0 205.7h640V240H0z\"/><path fill=\"#fff\" d=\"M0 240h640v34.3H0z\"/><path fill=\"#c00\" d=\"M0 274.3h640v34.3H0z\"/><path fill=\"#fff\" d=\"M0 308.6h640v34.3H0z\"/><path fill=\"#c00\" d=\"M0 342.9h640V377H0z\"/><path fill=\"#fff\" d=\"M0 377.1h640v34.3H0z\"/><path fill=\"#c00\" d=\"M0 411.4h640v34.3H0z\"/><path fill=\"#fff\" d=\"M0 445.7h640V480H0z\"/><path fill=\"#006\" d=\"M0 .5h320v274.3H0z\"/><path fill=\"#fc0\" d=\"m207.5 73.8 6 40.7 23-34-12.4 39.2 35.5-20.8-28.1 30 41-3.2-38.3 14.8 38.3 14.8-41-3.2 28.1 30-35.5-20.8 12.3 39.3-23-34.1-6 40.7-5.9-40.7-23 34 12.4-39.2-35.5 20.8 28-30-41 3.2 38.4-14.8-38.3-14.8 41 3.2-28.1-30 35.5 20.8-12.4-39.3 23 34.1zm-33.3 1.7a71 71 0 0 0-100 65 71 71 0 0 0 100 65 80 80 0 0 1-83.2 6.2 80 80 0 0 1-43.4-71.2 80 80 0 0 1 126.6-65\"/></g><defs><clipPath id=\"a\"><path fill=\"#fff\" d=\"M0 0h640v480H0z\"/></clipPath></defs></svg>","ng":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#fff\" d=\"M0 0h640v480H0z\"/><path fill=\"#008753\" d=\"M426.6 0H640v480H426.6zM0 0h213.3v480H0z\"/></g></svg>","nl":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#ae1c28\" d=\"M0 0h640v160H0z\"/><path fill=\"#fff\" d=\"M0 160h640v160H0z\"/><path fill=\"#21468b\" d=\"M0 320h640v160H0z\"/></svg>","no":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#ed2939\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"M180 0h120v480H180z\"/><path fill=\"#fff\" d=\"M0 180h640v120H0z\"/><path fill=\"#002664\" d=\"M210 0h60v480h-60z\"/><path fill=\"#002664\" d=\"M0 210h640v60H0z\"/></svg>","np":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M0-16h512v512H0z\"/></clipPath></defs><g clip-path=\"url(#a)\" transform=\"translate(0 15)scale(.9375)\"><g fill-rule=\"evenodd\"><path fill=\"#ce0000\" stroke=\"#000063\" stroke-width=\"13.8\" d=\"M6.5 489.5h378.8L137.4 238.1l257.3.3L6.6-9.5v499z\"/><path fill=\"#fff\" d=\"m180.7 355.8-27 9 21.2 19.8-28.5-1.8 11.7 26.2-25.5-12.3.5 28.6-18.8-20.9-10.7 26.6-9.2-26.3-20.3 20.6 1.8-27.7L49 409l12.6-25-29.3.6 21.5-18.3-27.3-10.5 27-9L32.2 327l28.4 1.8L49 302.6l25.6 12.3-.5-28.6 18.8 20.9 10.7-26.6 9.1 26.3 20.4-20.6-1.9 27.7 27-11.4-12.7 25 29.4-.6-21.5 18.3zm-32.4-184.7-11.3 8.4 5.6 4.6a94 94 0 0 0 30.7-36c1.8 21.3-17.7 69-68.7 69.5a70.6 70.6 0 0 1-71.5-70.3c10 18.2 16.2 27 32 36.5l4.7-4.4-10.6-8.9 13.7-3.6-7.4-12.4 14.4 1-1.8-14.4 12.6 7.4 4-13.5 9 10.8 8.5-10.3 4.6 14 11.8-8.2-1.5 14.3 14.2-1.7-6.7 13.2z\"/></g></g></svg>","nz":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><defs><g id=\"b\"><g id=\"a\"><path d=\"M0-.3v.5l1-.5z\"/><path d=\"M.2.3 0-.1l1-.2z\"/></g><use xlink:href=\"#a\" transform=\"scale(-1 1)\"/><use xlink:href=\"#a\" transform=\"rotate(72 0 0)\"/><use xlink:href=\"#a\" transform=\"rotate(-72 0 0)\"/><use xlink:href=\"#a\" transform=\"rotate(108)scale(1 -1)\"/></g></defs><path fill=\"#00247d\" fill-rule=\"evenodd\" d=\"M0 0h640v480H0z\"/><g transform=\"translate(-111 36.1)scale(.66825)\"><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#fff\" transform=\"translate(900 120)scale(45.4)\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#cc142b\" transform=\"matrix(30 0 0 30 900 120)\"/></g><g transform=\"rotate(82 525.2 114.6)scale(.66825)\"><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#fff\" transform=\"rotate(-82 519 -457.7)scale(40.4)\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#cc142b\" transform=\"rotate(-82 519 -457.7)scale(25)\"/></g><g transform=\"rotate(82 525.2 114.6)scale(.66825)\"><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#fff\" transform=\"rotate(-82 668.6 -327.7)scale(45.4)\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#cc142b\" transform=\"rotate(-82 668.6 -327.7)scale(30)\"/></g><g transform=\"translate(-111 36.1)scale(.66825)\"><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#fff\" transform=\"translate(900 480)scale(50.4)\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" fill=\"#cc142b\" transform=\"matrix(35 0 0 35 900 480)\"/></g><path fill=\"#012169\" d=\"M0 0h320v240H0z\"/><path fill=\"#fff\" d=\"m37.5 0 122 90.5L281 0h39v31l-120 89.5 120 89V240h-40l-120-89.5L40.5 240H0v-30l119.5-89L0 32V0z\"/><path fill=\"#c8102e\" d=\"M212 140.5 320 220v20l-135.5-99.5zm-92 10 3 17.5-96 72H0zM320 0v1.5l-124.5 94 1-22L295 0zM0 0l119.5 88h-30L0 21z\"/><path fill=\"#fff\" d=\"M120.5 0v240h80V0zM0 80v80h320V80z\"/><path fill=\"#c8102e\" d=\"M0 96.5v48h320v-48zM136.5 0v240h48V0z\"/></svg>","pe":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#d91023\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"M213.3 0h213.4v480H213.3z\"/></svg>","ph":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#0038a8\" d=\"M0 0h640v240H0z\"/><path fill=\"#ce1126\" d=\"M0 240h640v240H0z\"/><path fill=\"#fff\" d=\"M415.7 240 0 480V0\"/><path fill=\"#fcd116\" d=\"M26.7 42.4 41 55l16.6-9.2-7.4 17.5 14 13-19-1.6-8.1 17.2-4.3-18.5L14 71l16.3-10zm323.8 172.3.4 19 18 6.3-18 6.2-.4 19-11.5-15.1-18.2 5.5 10.8-15.6-10.8-15.6 18.2 5.5zM37.2 388.1l8 17.2 19-1.6-13.9 13 7.4 17.5-16.6-9.1-14.4 12.4 3.6-18.7L14 409l18.9-2.4zm114.2-249-6.2 6.2 3.1 47-3 .3-5.7-42.9-5.1 5 7.6 38.4a48 48 0 0 0-17.2 7.1l-21.7-32.4H96l26.4 34.3-2.4 2-31.1-35.5h-8.8v8.8l35.4 31-2 2.5-34.3-26.3v7.1l32.5 21.7q-5.2 7.8-7.1 17.2L66.3 223l-5.1 5 42.9 5.7q-.3 1.6-.3 3.1l-47-3-6.2 6.2 6.2 6.2 47-3.1.3 3.1-42.9 5.7 5 5 38.4-7.6a48 48 0 0 0 7.1 17.2l-32.5 21.7v7.2l34.3-26.3 2 2.4-35.4 31v8.8H89l31-35.4 2.5 2L96 312.2h7.2l21.7-32.5q7.8 5.2 17.2 7.1l-7.6 38.4 5 5 5.7-42.9q1.5.3 3.1.3l-3 47 6.1 6.2 6.3-6.2-3.1-47 3-.3 5.7 43 5.1-5.1-7.6-38.4a48 48 0 0 0 17.2-7.1l21.7 32.5h7.2l-26.4-34.3 2.4-2 31.1 35.4h8.8v-8.8l-35.4-31 2-2.4 34.3 26.3v-7.2l-32.5-21.7q5.2-7.8 7.1-17.2l38.3 7.6 5.1-5-42.9-5.7q.3-1.5.3-3.1l47 3 6.2-6.1-6.2-6.2-47 3-.3-3 42.9-5.7-5-5-38.4 7.5a48 48 0 0 0-7.1-17.2l32.5-21.7v-7.1l-34.3 26.3-2-2.4 35.4-31v-8.9H214l-31 35.5-2.5-2 26.4-34.3h-7.2L178 200.2q-7.8-5.2-17.2-7.1l7.6-38.3-5-5-5.7 42.8-3.1-.3 3-47z\"/></svg>","pk":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M-52.3 0h682.6v512H-52.3z\"/></clipPath></defs><g fill-rule=\"evenodd\" stroke-width=\"1pt\" clip-path=\"url(#a)\" transform=\"translate(49)scale(.9375)\"><path fill=\"#0c590b\" d=\"M-95 0h768v512H-95z\"/><path fill=\"#fff\" d=\"M-95 0H97.5v512H-95z\"/><g fill=\"#fff\"><path d=\"m403.7 225.4-31.2-6.6-16.4 27.3-3.4-31.6-31-7.2 29-13-2.7-31.7 21.4 23.6 29.3-12.4-15.9 27.6 21 24z\"/><path d=\"M415.4 306a121 121 0 0 1-161.3 59.4 122 122 0 0 1-59.5-162.1A119 119 0 0 1 266 139a156 156 0 0 0-11.8 10.9A112.3 112.3 0 0 0 415.5 306z\"/></g></g></svg>","pl":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\"><path fill=\"#fff\" d=\"M0 0h640v240H0z\"/><path fill=\"#dc143c\" d=\"M0 240h640v240H0z\"/></g></svg>","pt":"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 640 480\"><path fill=\"red\" d=\"M256 0h384v480H256z\"/><path fill=\"#060\" d=\"M0 0h256v480H0z\"/><g fill=\"#ff0\" fill-rule=\"evenodd\" stroke=\"#000\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\".6\"><path d=\"M339.5 306.2c-32.3-1-180-93.2-181-108l8.1-13.5c14.7 21.3 165.7 111 180.6 107.8z\"/><path d=\"M164.9 182.8c-2.9 7.8 38.6 33.4 88.4 63.8s92.9 49 96 46.4l1.5-2.8q-.9 1.6-4.3.6c-13.5-3.9-48.6-20-92.1-46.4-43.6-26.4-81.4-50.7-87.3-61a6 6 0 0 1-.6-3.1h-.2l-1.2 2.2zm175.3 123.8q-.7 1.3-3.5.8c-12-1.3-48.6-19.1-91.9-45-50.4-30.2-92-57.6-87.4-64.8l1.2-2.2.2.1c-4 12.2 82.1 61.4 87.2 64.6 49.8 30.8 91.8 48.9 95.5 44.2z\"/><path d=\"M256.2 207.2c32.2-.3 72-4.4 95-13.6l-5-8c-13.5 7.5-53.5 12.5-90.3 13.2-43.4-.4-74.1-4.5-89.5-14.8l-4.6 8.6c28.2 12 57.2 14.5 94.4 14.6\"/><path d=\"M352.5 193.8c-.8 1.3-15.8 6.4-37.8 10.2a381 381 0 0 1-58.6 4.3 416 416 0 0 1-56.2-3.6c-23.1-3.6-35-8.6-39.5-10.4l1.1-2.2c12.7 5 24.7 8 38.7 10.2A412 412 0 0 0 256 206a392 392 0 0 0 58.3-4.3c22.5-3.7 34.8-8.4 36.6-10.5zm-4.4-8.1c-2.4 2-14.6 6.3-36 9.7a388 388 0 0 1-55.8 4c-22 0-40.1-1.6-53.8-3.6-21.8-2.8-33.4-8-37.6-9.4l1.3-2.2c3.3 1.7 14.4 6.2 36.5 9.3a385 385 0 0 0 53.6 3.4 384 384 0 0 0 55.4-4c21.5-3 33.1-8.4 34.9-9.8zM150.3 246c19.8 10.7 63.9 16 105.6 16.4 38 .1 87.4-5.8 105.9-15.6l-.5-10.7c-5.8 9-58.8 17.7-105.8 17.4s-90.7-7.6-105.3-17v9.5\"/><path d=\"M362.8 244.5v2.5c-2.8 3.4-20.2 8.4-42 12a434 434 0 0 1-65.4 4.4 400 400 0 0 1-62-4.3 155 155 0 0 1-44.4-12v-2.9c9.7 6.4 35.9 11.2 44.7 12.6 15.8 2.4 36.1 4.2 61.7 4.2 26.9 0 48.4-1.9 65-4.4 15.7-2.3 38-8.2 42.4-12.1m0-9v2.5c-2.8 3.3-20.2 8.3-42 11.9a434 434 0 0 1-65.4 4.5 414 414 0 0 1-62-4.3 155 155 0 0 1-44.4-12v-3c9.7 6.5 36 11.2 44.7 12.6a408 408 0 0 0 61.7 4.3c26.9 0 48.5-2 65-4.5 15.7-2.2 38-8.1 42.4-12m-107 68.8c-45.6-.2-84.7-12.4-93-14.4l6 9.4a250 250 0 0 0 87.4 14.3c34.7-1 65-3.7 86.3-14.1l6.2-9.8c-14.5 6.9-64 14.6-93 14.6\"/><path d=\"m344.9 297.3-2.8 4c-10 3.6-26 7.4-32.6 8.4a296 296 0 0 1-53.7 5c-40.4-.6-73.5-8.5-89-15.3l-1.3-2.1.2-.4 2.1.9a287 287 0 0 0 88.2 14.5c18.8 0 37.5-2.1 52.6-4.8 23.2-4.7 32.6-8.2 35.5-9.8l.7-.4zm5.3-8.8-2 3.5c-5.4 2-20 6.2-41.3 9.2-14 1.9-22.7 3.8-50.6 4.3a347 347 0 0 1-94.2-14L161 289a390 390 0 0 0 95.4 14c25.5-.5 36.4-2.4 50.3-4.3 24.8-3.8 37.3-8 41-9.1v-.2l2.6-1z\"/><path d=\"M350.8 237.6c.1 30-15.3 57-27.6 68.8a99 99 0 0 1-67.8 28.2c-30.3.5-58.8-19.2-66.5-27.9a101 101 0 0 1-27.5-67.4c1.8-32.8 14.7-55.6 33.3-71.3a100 100 0 0 1 64.2-22.7 98 98 0 0 1 71 35.6c12.5 15.2 18 31.7 20.9 56.7M255.6 135a106 106 0 0 1 106 105.2 105.6 105.6 0 1 1-211.4 0c-.1-58 47.3-105.2 105.4-105.2\"/><path d=\"M255.9 134.5c58.2 0 105.6 47.4 105.6 105.6S314.1 345.7 256 345.7s-105.6-47.4-105.6-105.6S197.8 134.5 256 134.5zM152.6 240c0 56.8 46.7 103.3 103.3 103.3S359.2 296.8 359.2 240s-46.7-103.3-103.3-103.3S152.6 183.2 152.6 240\"/><path d=\"M256 143.3a97 97 0 0 1 96.7 96.7 97 97 0 0 1-96.7 96.8c-53 0-96.7-43.6-96.7-96.8a97 97 0 0 1 96.7-96.7M161.6 240c0 52 42.6 94.4 94.4 94.4s94.4-42.5 94.4-94.4-42.6-94.4-94.4-94.4a95 95 0 0 0-94.4 94.4\"/><path d=\"M260.3 134h-9.1v212.3h9z\"/><path d=\"M259.3 132.8h2.3v214.7h-2.2V132.8zm-9 0h2.4v214.7h-2.3z\"/><path d=\"M361.6 244.2v-7.8l-6.4-6-36.3-9.6-52.2-5.3-63 3.2-44.8 10.6-9 6.7v7.9l22.9-10.3 54.4-8.5h52.3l38.4 4.2 26.6 6.4z\"/><path d=\"M256 223.8c24.9 0 49 2.3 68.3 6 19.8 4 33.7 9 38.5 14.5v2.8c-5.8-7-24.5-12-39-15-19-3.6-43-6-67.9-6-26.1 0-50.5 2.6-69.3 6.2-15 3-35.1 9-37.6 14.8v-2.9c1.3-4 16.3-10 37.3-14.3 18.9-3.7 43.3-6.1 69.6-6.1zm0-9.1a383 383 0 0 1 68.3 6c19.8 4 33.7 9 38.5 14.6v2.7c-5.8-6.9-24.5-12-39-14.9-19-3.7-43-6-67.9-6a376 376 0 0 0-69.2 6.2c-14.5 2.7-35.4 8.9-37.7 14.7v-2.8c1.4-4 16.6-10.3 37.3-14.3 19-3.7 43.3-6.2 69.7-6.2m-.6-46.2c39.3-.2 73.6 5.5 89.3 13.5l5.7 10c-13.6-7.4-50.6-15-94.9-14-36.1.3-74.7 4-94 14.4l6.8-11.4c15.9-8.3 53.3-12.5 87.1-12.5\"/><path d=\"M256 176.7a354 354 0 0 1 61.3 4.3c16 3 31.3 7.4 33.5 9.8l1.7 3c-5.3-3.4-18.6-7.3-35.6-10.5s-38.7-4.3-61-4.2c-25.3-.1-45 1.2-61.8 4.2a109 109 0 0 0-33.3 10.3l1.7-3.1c6-3 15.3-6.7 31.1-9.6 17.5-3.2 37.4-4.1 62.4-4.2m0-9c21.4-.2 42.6 1 59.1 4a96 96 0 0 1 30.6 10l2.5 4c-4.2-4.7-20-9.2-34.1-11.6-16.4-2.9-36.7-4-58.1-4.2a361 361 0 0 0-59.5 4.4 97 97 0 0 0-29.6 9.1l2.2-3.3c5.8-3 15.2-5.8 27-8.1a357 357 0 0 1 59.9-4.4zM308.4 284a276 276 0 0 0-52.5-4c-65.5.8-86.6 13.5-89.2 17.3l-5-8c16.8-12 52.4-18.8 94.6-18.2q32.9.5 56.6 5l-4.5 8\"/><path d=\"M255.6 278.9c18.2.3 36 1 53.3 4.2l-1.2 2.2c-16-3-33.2-4-52-4-24.3-.2-48.7 2.1-70 8.2-6.7 1.9-17.8 6.2-19 9.8l-1.2-2c.4-2.2 7-6.6 19.6-10 24.4-7 47.2-8.3 70.5-8.4m.8-9.2a327 327 0 0 1 57.3 5l-1.3 2.3a299 299 0 0 0-56-4.9c-24.2 0-49.9 1.8-73.3 8.6-7.5 2.2-20.6 7-21 10.7l-1.2-2.2c.2-3.4 11.5-7.9 21.7-10.8 23.5-6.9 49.3-8.6 73.8-8.7\"/><path d=\"m349.4 290.5-7.8 12.3-22.7-20.1-58.6-39.5-66.2-36.3-34.3-11.7 7.3-13.6 2.5-1.3 21.3 5.3 70.4 36.3 40.6 25.6L336 272l13.9 16z\"/><path d=\"M158.6 195.5c6-4 50.2 15.6 96.6 43.6 46.1 28 90.3 59.6 86.3 65.5l-1.3 2.1-.6.5c.1-.1.8-1 0-3.1-2-6.5-33.4-31.5-85.3-62.9-50.7-30.1-92.9-48.3-97-43.1zM351 290.4c3.8-7.6-37.2-38.5-88.1-68.6-52-29.5-89.6-46.9-96.5-41.7L165 183l.4-.5c1.2-1 3.3-1 4.2-1 11.8.2 45.5 15.7 92.8 42.8 20.8 12 87.6 55 87.3 67 0 1 .1 1.2-.3 1.8l1.7-2.6z\"/></g><g transform=\"translate(0 26.7)scale(1.06667)\"><path fill=\"#fff\" stroke=\"#000\" stroke-width=\".7\" d=\"M180.6 211a59 59 0 0 0 17.5 41.7 59 59 0 0 0 41.8 17.6 59 59 0 0 0 42-17.4 59 59 0 0 0 17.4-41.8v-79.2l-118.7-.2z\"/><path fill=\"red\" stroke=\"#000\" stroke-width=\".5\" d=\"M183 211.1a56 56 0 0 0 16.8 40 57 57 0 0 0 40.2 16.8 57 57 0 0 0 40.2-16.6 56 56 0 0 0 16.7-40v-77H183v76.8m91-53.7v48.9l-.1 5.1a33 33 0 0 1-10 24 34 34 0 0 1-24 10c-9.4 0-17.7-4-23.9-10.2a34 34 0 0 1-10-24v-54z\"/><g id=\"e\"><g id=\"d\" fill=\"#ff0\" stroke=\"#000\" stroke-width=\".5\"><path stroke=\"none\" d=\"M190.2 154.4c.1-5.5 4-6.8 4-6.8.1 0 4.3 1.4 4.3 6.9z\"/><path d=\"m186.8 147.7-.7 6.3h4.2c0-5.2 4-6 4-6 .1 0 4 1.1 4.1 6h4.2l-.8-6.4zm-1 6.4h17q.5 0 .6.7 0 .8-.6.8h-17q-.5 0-.6-.8 0-.7.7-.7z\"/><path d=\"M192 154c0-3.3 2.3-4.2 2.3-4.2s2.3 1 2.3 4.2H192m-5.8-9h16.3q.5.1.6.8 0 .5-.6.6h-16.3q-.5 0-.6-.7 0-.5.6-.6zm.4 1.5H202q.5 0 .6.7t-.6.7h-15.5q-.6 0-.6-.7t.6-.7zm5-10.6h1.2v.8h.9v-.8h1.3v.9h.9v-1h1.2v2q0 .6-.5.6h-4.4q-.5 0-.6-.5zm4.6 2.7.3 6.4h-4.3l.3-6.5h3.7\"/><path id=\"a\" d=\"M191 141.6v3.4h-4v-3.4z\"/><use xlink:href=\"#a\" width=\"100%\" height=\"100%\" x=\"10.6\"/><path id=\"b\" d=\"M186.3 139h1.2v1h.9v-1h1.2v1h.9v-1h1.2v2q0 .6-.5.6h-4.3l-.6-.6z\"/><use xlink:href=\"#b\" width=\"100%\" height=\"100%\" x=\"10.6\"/><path fill=\"#000001\" stroke=\"none\" d=\"M193.9 140.6c0-.6.9-.6.9 0v1.6h-.9z\"/><path id=\"c\" fill=\"#000001\" stroke=\"none\" d=\"M188.6 142.8c0-.6.8-.6.8 0v1.2h-.8z\"/><use xlink:href=\"#c\" width=\"100%\" height=\"100%\" x=\"10.6\"/></g><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" y=\"46.3\"/><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" transform=\"rotate(-45.2 312.8 180)\"/></g><use xlink:href=\"#d\" width=\"100%\" height=\"100%\" x=\"45.7\"/><use xlink:href=\"#e\" width=\"100%\" height=\"100%\" transform=\"matrix(-1 0 0 1 479.8 0)\"/><g id=\"f\" fill=\"#fff\"><path fill=\"#039\" d=\"M232.6 202.4a8 8 0 0 0 2.2 5.7 7 7 0 0 0 5.3 2.4q3.2-.2 5.3-2.4a8 8 0 0 0 2.2-5.7v-10.8h-15z\"/><circle cx=\"236.1\" cy=\"195.7\" r=\"1.5\"/><circle cx=\"244.4\" cy=\"195.7\" r=\"1.5\"/><circle cx=\"240.2\" cy=\"199.7\" r=\"1.5\"/><circle cx=\"236.1\" cy=\"203.9\" r=\"1.5\"/><circle cx=\"244.4\" cy=\"203.9\" r=\"1.5\"/></g><use xlink:href=\"#f\" width=\"100%\" height=\"100%\" y=\"-26\"/><use xlink:href=\"#f\" width=\"100%\" height=\"100%\" x=\"-20.8\"/><use xlink:href=\"#f\" width=\"100%\" height=\"100%\" x=\"20.8\"/><use xlink:href=\"#f\" width=\"100%\" height=\"100%\" y=\"25.8\"/></g></svg>","qa":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#8d1b3d\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"M0 0v480h158.4l97.8-26.7-97.8-26.6 97.7-26.7-97.7-26.7 97.7-26.6-97.7-26.7 97.8-26.7-97.8-26.6 97.7-26.7-97.7-26.7 97.7-26.6-97.7-26.7 97.8-26.7-97.8-26.6L256.1 80l-97.7-26.7 97.8-26.6L158.3 0z\"/></svg>","ro":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#00319c\" d=\"M0 0h213.3v480H0z\"/><path fill=\"#ffde00\" d=\"M213.3 0h213.4v480H213.3z\"/><path fill=\"#de2110\" d=\"M426.7 0H640v480H426.7z\"/></g></svg>","ru":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#fff\" d=\"M0 0h640v160H0z\"/><path fill=\"#0039a6\" d=\"M0 160h640v160H0z\"/><path fill=\"#d52b1e\" d=\"M0 320h640v160H0z\"/></svg>","sa":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M-85.3 0h682.6v512H-85.3z\"/></clipPath></defs><g fill-rule=\"evenodd\" clip-path=\"url(#a)\" transform=\"translate(80)scale(.9375)\"><path fill=\"#165d31\" d=\"M-128 0h768v512h-768z\"/><path fill=\"#fff\" d=\"M65.5 145.1c-.8 12-2 33 8.3 35.2 12.3 1.2 5.5-20.8 10-24.8.8-2 2.3-2 2.4.5v18.7c0 6 4 7.8 7 9 3.2-.2 5.4 0 6.6 3l1.6 32.3s7.4 2.2 7.8-18.1c.3-12-2.4-21.9-.8-24.2 0-2.3 3-2.4 5-1.3 3.2 2.2 4.6 5 9.6 4 7.6-2.2 12.2-5.9 12.3-11.7a47 47 0 0 0-3.5-16.6c.4-1-1.4-3.7-1-4.7 1.3 2.2 3.4 2 3.8 0-1.3-4.2-3.3-8.3-6.5-10-2.7-2.4-6.7-2-8 3-.8 5.7 2 12.4 6.1 18 .9 2.1 2.1 5.7 1.6 8.9q-3.4 1.8-6.3-1.2s-6-4.5-6-5.6c1.6-10.2.3-11.4-.6-14.3-.6-3.9-2.5-5.2-4-7.8-1.5-1.6-3.5-1.6-4.5 0-2.7 4.6-1.4 14.5.5 19 1.4 4.1 3.5 6.7 2.5 6.7-.8 2.3-2.5 1.7-3.8-1a67 67 0 0 1-2.1-17.4c-.5-4.6-1.1-14.4-4.2-17-1.8-2.4-4.5-1.2-5.5 1a82 82 0 0 0 .3 13.4c2 7.4 2.7 14 3.7 21.5.3 10.1-5.8 4.4-5.5-.7a45 45 0 0 0-.3-19.4c-1-2.6-2.1-3.2-4.6-2.8-1.9 0-6.8 5.3-8.2 14.3 0 0-1.2 4.6-1.7 8.7-.7 4.6-3.7 8-5.9-.6-1.8-6.3-3-21.6-6-18z\"/><path fill=\"#fff\" d=\"m99 194.2-32 15.4c.3-7.3 15.1-20.4 25.3-20.5 6.5.1 4.9 2.5 6.6 5.1z\"/><path fill=\"#fff\" d=\"M93.3 204.2c-16.8 43.5 39.5 49.6 45.8 1.8.6-2 3-3.9 3.4-.7-1.3 43.3-43.6 46.2-50.8 32.6a42 42 0 0 1-2.5-14.6c-1-8.5-5.5-5.2-6.2 3.2-.7 4.7-.5 6-.5 10.5 2.2 34.2 56.7 19.5 65.6-8.7 4.7-15.6-.8-27.1 1.7-27.1 5.4 5.8 13 .8 14.7-1.2.7-1 2.5-1.7 3.7-.4 4.2 3 11.6 1.6 13.2-3.7q1.4-8 1.8-16.2c-3.5 1-6 1.7-6.3 3.2l-.7 4.6c-.3 1.5-3.2 1.5-3.4-.4-1.3-6-6.7-6.7-10 2.5-2.1 1.8-6.1 2.2-6.5-.5.5-6.2-2-7-7-4.1l-4.8-36.2c2 0 4 1.5 5.9-.9-2-6.5-6.5-19.7-9-20.7-1.1-1.4-2.1-.5-3.7-.1-2.6.8-5 3-4.2 7.4 3 18.8 5 33.1 8.1 52 .5 2.1-1.3 5-3.7 4.7-4-2.7-5-8.2-12-8-5 0-10.6 5.5-11.3 10.7-.9 4.2-1.2 8.7 0 12.3 3.5 4.2 7.7 3.8 11.4 2.9 3-1.3 5.5-4.3 6.6-3.6.7.9.1 10.9-14.3 18.5-8.7 4-15.7 4.8-19.4-2.3-2.3-4.5.2-21.4-5.6-17.5\"/><path fill=\"#fff\" d=\"M165 160c3.3-1.2 19.3-19.6 19.3-19.6l-2.4-2q-1.3-1.1 0-2.2c4-2.4 2.7-7.4.7-9.8a10 10 0 0 0-8.7.1c-2.8 2.7-3.4 7-1.2 9.6 2.1 1 4.2 3.2 2.8 4.4-6.6 7-24.5 19.1-22.4 19.5.4.6 11.5.6 11.8 0zm-97 65c-6 9.6-6.5 23.9-3.2 28.2 1.8 2 4.7 2.9 6.8 2.2 3.8-1.6 5.5-9.3 4.6-12q-1.8-3-3.6-.7c-2.6 5.4-3.7 1.7-4-1.3a70 70 0 0 1 .8-15.2c.7-4.2 0-3-1.4-1.2m257.1-15.3c-5.8-12.6-13.9-25-16.4-29.7a558 558 0 0 0-24.8-36c-6.2-7.4 10.2 3.1-2-11.7l-8.9-7.5c-2-1.4-6.8-4-7.6.2-.4 3.8-.2 5.8.4 8.9.5 2 3.5 5.5 5 7.5a565 565 0 0 1 53.8 86.5c2.6-1.3 2-16.1.5-18.2\"/><path fill=\"#fff\" d=\"M299.6 251.5c-1.2 1.3 2.8 6.8 8 6.8 8.6-1 16.2-5.8 23.2-18.6a33 33 0 0 0 5.3-14.2 317 317 0 0 0-5.8-72.4c-.3-2 0-4.4.2-5 .6-.7 2.5 0 3.5-1.7 1.5-1.5-4-14-7-18.7-1-2.2-1.5-3.6-3.3.2a27 27 0 0 0-3 13.6c4.1 28.5 5.4 53.4 8 81.9.3 2.8-.1 6.8-2 8.4a80 80 0 0 1-27.1 19.7m116.5-.1c-6.2 3.6-6.2 7.7-1.2 7.8 8.6-1 18.8-1.7 25.8-12.3a41 41 0 0 0 4.2-16 303 303 0 0 0-4.7-71.4c-.2-2-1.1-6.7-.8-7.3.6-1.4 3.4.1 4.4-1.5 1.4-1.5-7.3-12.7-10.4-17.5-1-2.2-1.4-3.6-3.3.2a22 22 0 0 0-1.8 13.6c4.6 31 8 54.2 8.7 81.6-.4 2.6-.5 4-1.7 7.3-2.7 3.4-5.7 7.8-8.5 9.9-2.8 2-8.8 4-10.7 5.6\"/><path fill=\"#fff\" d=\"M420.7 223.7q.1-10.9-.1-19a34 34 0 0 0-3-13.5c-1.8-4.1-.7-7.4-1.6-11.8-.8-4.4-.6-11-1.8-16.1-.4-2-1.4-8.5-1.1-9.2.5-1.4 2.4 0 3.4-1.6 1.4-1.5-5-18-8.2-22.7-1.1-2.1-3.3-1.4-5.8 2-2.5 2.3-1.6 7.4-.6 12.3 6.1 32.3 10.8 61.6 9.8 92.3-.4 2.6 9-7.8 9-12.7m-45.7-40c-3.9-.2-12-7.7-14.4-12a8 8 0 0 1 .4-6.5c1.5-1 3.7-2 5.4-1 0 0 1.7 2.4 1.4 2.7 2 1 3 .5 3.2-.4.1-1.5-.6-2.4-.6-4 .9-4.6 6-5.3 8-2.4 1.4 1.8 2 5.5 2.1 8 0 1.3-2-.2-3.3 0-1.1.4-1.4 1.8-1.5 3-.2 3.3-.6 8.6-.7 12.5zm-71.8 48c1-9.8-.4-27.3-.5-33.1A477 477 0 0 0 299 154c-1.2-8.4 3.4.9 2.8-4-1.5-8.3-6.1-14-11.6-21.5-1.7-2.5-1.7-3-4.4.6-3 6.7-.4 11.4.4 16.7 3.9 17.2 6.2 33 7.3 48.7a393 393 0 0 1 .4 49c3 .1 7.6-4.7 9.3-11.8\"/><path fill=\"#fff\" d=\"M434 216c-6.9-11.6-17.2-24-20-28.7a658 658 0 0 0-29.2-37.8c-8.5-9 4-1.5-1.6-8.5-4.7-5.1-6-6.8-10.1-9.9-2-1.3-3.2-3.8-4 .5a83 83 0 0 0-.2 11.2c0 1.7 1.8 5 3.4 7 20.7 25.5 43.4 51.5 61.6 84.2 2.6-1.3 1.7-16 0-18z\"/><path fill=\"#165d31\" d=\"M122.6 194.7c-.5.9-1.6 2-1.2 3.1q1 1.4 2.6 1.3c1.1 0 2.7.3 3-.3q1-1.2.6-3.3c-1.2-3-4.4-1.8-5-.8\"/><path fill=\"#fff\" d=\"M354.2 362.5c9.2.4 15.2.5 23.3 1.4l9.6-1c10.6-1 11 15.1 11 15.1 0 9.5-3.7 10-8.4 11-2.7.4-4-1.6-5.5-3.6a14 14 0 0 1-7 .4l-11.5-.5c-4-.3-6.2.5-10.3.1-.8 1.3-2 3.1-4.4 2.6-2-.3-4.5-6-3.8-10.5 1.5-3.2 1-2.1 1-3.5-37.6-1-75.5-2.7-112.3-2.2-28.8.1-57.2 1.3-85.7 2.5-15.2-.2-26.8-2.6-34.8-14.3.8 0 38.8 2.1 49.9 1.4 20.5-.2 39.3-1.9 60.2-2.5 41.2.7 82.1.7 123.3 3.6-4-2.7-4-9 2-10.6.5-.4.8 3.1 1.7 3 4.9-.3 2.7 6.3 1.7 7.6M188.6 135.3c-6.2 17.8 3.6 37.4 10.4 35.5 5 2 8-7.4 10-17.6 1.5-2.9 2.5-3.2 3.2-1.7-.2 13.6 1 16.7 4.5 20.8 7.8 6 14.3.8 14.8.3l6-6.1q2.2-2.2 5.1-.3c1.9 1.7 1.6 4.6 5.6 6.6 3.4 1.4 10.5.4 12.2-2.5 2.2-3.9 2.8-5.2 3.8-6.6 1.6-2.1 4.3-1.2 4.3-.5-.3 1.2-1.9 2.3-.8 4.5 2 1.4 2.4.5 3.5.2 4-2 7-10.6 7-10.6.1-3.2-1.7-3-2.9-2.2l-3.1 2.1c-2 .3-5.7 1.6-7.6-1.3-1.9-3.4-1.9-8.3-3.3-11.8 0-.2-2.6-5.5-.2-5.8 1.2.2 3.7.9 4.1-1.2 1.2-2.1-2.6-8-5.3-11-2.3-2.5-5.5-2.8-8.6-.2-2.2 2-1.9 4.2-2.3 6.3a10 10 0 0 0 2 8.7c2.2 4.2 6.1 9.7 4.8 17.5 0 0-2.3 3.6-6.3 3.1-1.7-.3-4.4-1-5.8-11.8-1.1-8 .2-19.4-3.2-24.7-1.3-3.3-2.2-6.4-5.2-.9-.8 2.2-4.3 5.5-1.8 12.2a36 36 0 0 1 2 19c-1.5 2.2-1.8 2.9-3.7 5-2.6 3-5.5 2.2-7.7 1.1-2-1.3-3.6-2-4.6-6.5.2-7 .6-18.5-.7-20.9-1.9-3.8-5-2.4-6.3-1.2a48 48 0 0 0-11.5 23.5c-1.8 5.8-3.7 4.1-5 1.8-3.2-3-3.5-26.7-7.4-22.8\"/><path fill=\"#fff\" d=\"M207.4 174.1c2.9-2 1.6-3.4 5.8.8a72 72 0 0 1 9.2 31.3c-.2 2.6 1.6 4.2 2.5 3.6.4-6 15.1-14.4 28.6-15.6 2-.5 1-4.4 1.3-6.4-.8-7.5 4.2-14.3 11.2-14.8 9.6 1.4 12.8 6.5 13 14.2-1.1 15-16.7 17.5-25.4 18.7-1.3.5-1.9 1.1 0 1.8l36.6.2 1.9 1c.2 1-.6.2-2 2.6a30 30 0 0 0-3.7 11.5c-10.9 3.6-22.2 5-33.6 6.5-4 2-6 4.7-5.2 7.7 1.4 3.3 10.2 6.7 10.2 6.8 1.7 1 3.6 3.5-.5 8.6-17.8-.8-31.7-8.4-36.5-19.1-1.4-1.1-3 0-4 1.4-7 9-13.8 17-25.7 21.4-7 1.8-14.3-1.1-17.7-5.7-2.3-2.7-2.2-5.6-3-6.2-3.9 1.7-36.9 15.7-32.7 9.1 8-8.5 22-14.9 34.2-23.3.9-2.9 2.5-12.5 7.3-15.6.3 0-.7 5.6-.6 8 0 2-.2 2.7.2 2.2.9-.5 15.7-12.2 17-15.8 1.4-2 .3-7.2.3-7.4-2.8-7.2-6.7-7.8-8.1-11.4-1.3-4.7-.7-10.1 2-11.7q3.7-3.1 7.9.5c3 2.7 5.6 8 6.4 11.9-.5 1.5-4-1-5-.3a16 16 0 0 1 3.7 7.8c2 8.2 1.4 11.4-.6 16.7-6.6 13.9-15 18-22.4 23.2-.2 0-.3 3.5 2.4 5.4 1 1 4.9 1.5 9.4 0a55 55 0 0 0 22.3-23.3 51 51 0 0 0-2.4-22.2c-2.9-6.7-6.3-16.2-6.3-16.4-.1-4.2.2-5.6 2-7.7m-95.8-38.6c4.2 2 12.2 1.1 11.8-5.7l-.2-3.1c-.8-2-3.2-1.5-3.7.5-.2.7.3 1.8-.3 2.1-.4.4-1.7.2-1.7-1.7q-.1-1-.7-1.6-.2-.2-.9-.2c-.6 0-.6.1-.9.6l-.3 1.6q-.1.9-.8 1c-.6 0-.5 0-1-.2q-.4-.3-.5-1l-.3-1.6q-.3-.4-1-.6c-2.3 0-2.5 2.7-2.3 3.7-.2.2-.3 4.9 2.8 6.2\"/><path fill=\"#fff\" d=\"M235.1 187.7c4.2 2 14.3.9 11.8-5.6l-.2-3.2c-.9-2-3.2-1.5-3.7.6-.2.6.3 1.7-.4 2-.3.4-1.7.2-1.6-1.6q-.1-1-.7-1.7-.3-.2-1-.2c-.5 0-.5.2-.8.7q-.3.7-.3 1.6-.2.8-.9 1c-.5 0-.4 0-.8-.3q-.5-.3-.6-.9l-.3-1.6q-.3-.5-1-.6c-2.3 0-2.5 2.6-2.4 3.6-.1.2-.2 5 3 6.2zm72-21.6c4.2 2 12.1 1.1 11.8-5.6l-.2-3.2c-.9-2-3.2-1.5-3.7.5-.2.7.3 1.8-.4 2.2-.3.3-1.7.1-1.6-1.8q-.1-1-.7-1.6-.3-.2-1-.2t-.8.7l-.3 1.5q-.1 1-.9 1c-.8 0-.4 0-.8-.2q-.5-.3-.6-.9 0-1-.3-1.7-.4-.4-1-.5c-2.3 0-2.5 2.6-2.4 3.6-.1.2-.2 4.9 3 6.2zm37.3 54.3c-7.3 8.3-4.1 22-2.4 25 2.4 4.8 4.3 7.9 9 10.3 4.3 3.1 7.7 1.2 9.5-1 4.3-4.5 4.4-16 6.4-18.2 1.4-4.2 5-3.5 6.7-1.6a17 17 0 0 0 6.2 5.3c4 3.5 8.8 4.2 13.6 1 3.2-1.9 5.3-4.2 7.2-8.9 2-5.6 1-31.6.5-47l-4.2-21.5c0-.2-.5-10.2-1-12.5 0-1-.3-1.3.7-1.2 1.1 1 1.2 1 2 1.3 1 .2 2-1.7 1.3-3.3l-10-18.6c-.8-.8-1.9-1.6-3.2.2a7 7 0 0 0-2.4 5.5l1.3 13.3 4 22.6c1.3 16 1.6 29.2 2.9 45.3-.2 6.8-2.3 12.7-4.3 13.6 0 0-3 1.7-5-.2-1.5-.6-7.4-9.9-7.4-9.9-3-2.7-5-2-7.1 0-6 5.8-8.6 16.4-12.7 23.8-1 1.7-4 3-7.2-.1-8.2-11.3-3.4-27.3-4.4-23.2M309 126.7c3.8 1.5 6.4 9.2 5.6 13-.8 4.5-2.8 9.5-4.2 8.9-1.6-.6 1-4.6-.5-8.8-.8-2.8-6-7.8-5.4-9.2-1-3.1 2.2-4.5 4.5-4z\"/><path fill=\"#fff\" d=\"M356.6 225c.7-9.2-.6-14.8-.8-20.2s-6.1-46.6-7.3-50.6c-1.5-7.8 5.7-1 4.9-5.6-2.5-5.6-8.6-13.9-10.5-18.8-1.2-2-.7-4-3.3-.5a42 42 0 0 0-2.3 19.2c6.2 32.3 12.5 59.1 11.5 89.8 3 0 6.3-6.7 7.8-13.3m64.4-85.3c3.5 1.7 5.5 11.3 5.1 14-.7 5-2.5 10.4-3.8 9.7-1.5-.6.3-7.4-.4-9.5-.8-3-5.5-8.4-5-10-1-3.4 2-4.8 4.1-4.2m-255.7 67.9c3.3 1.3 5.3 8.3 5 10.3-.8 3.7-2.5 7.7-3.8 7.1-1.3-.4.3-5.4-.3-7-.3-3.7-4.9-5.7-4.8-7.3-.8-3 2-3.5 4-3.1z\"/><path fill=\"#165d31\" d=\"M244.9 218.2c4.2.2 6.3 3.6 2.4 5-4 1.3-7.7 2.4-7.8 8 1.5 8-2 5.2-4 4.2-2.4-1.8-9.2-6-10.2-15-.1-2.1 1.6-4 4.3-4 4 1.1 10 1.2 15.3 1.8\"/><path fill=\"#fff\" d=\"M77.4 124.4c4.8 1.4 5.1 8.6 4.8 10.7-.7 3.8-2.4 7.9-3.6 7.4-1.4-.5 0-5.7-.7-7.3-.7-2.2-4.8-6.4-4.4-7.6-.9-2.5 2-3.7 3.9-3.2m95.9 33.6c-3.8 2-5.2 8-2.9 11.6 2.2 3 5.6 1.9 6 1.9 3.7.4 5.9-6.9 5.9-6.9s.1-2-4.2 1.9c-1.9.3-2-.4-2.5-1.4a9 9 0 0 1 .5-5.7c.7-1.8-.7-2.6-2.8-1.4m28-36.4c-2 1.3-5.7 5.2-5.8 9.6-.1 2.5-.6 2.5 1 4 1.3 1.8 2.4 1.7 4.8.4a5 5 0 0 0 2.3-3.4c.6-2.8-3 1.4-3.4-1.8-.8-3 1.5-4.2 3.7-7 0-2 0-3.3-2.7-1.8zm22.4 4a60 60 0 0 0-1.6 11.1c-.6 2.8 3 4 4.5.4 2.4-6.5 2.4-9.3 2.6-12-.7-4.3-3.6-4.2-5.5.5m142 72.3c.4-.5 20-14.4 20-14.4 2-.7 1.5 7.2.6 7.1a78 78 0 0 1-20.7 14.3c-1 .7-1.9-5.3 0-7zm17.7-.2c3.5 1.7 4.9 11.8 4.5 14.5 0 5.4-3.3 9.6-4.7 9-1.4-.7.2-6.7-.5-8.8-.8-3-3.7-8.5-3.2-10.1-1-3.4 1.8-5.2 4-4.6zm-116 43.4a26 26 0 0 1 5.6-4.9c2-1 3.8.8 3.7.7.3 2-1.2 3.7-.7 6.3.4 1 .7 2.2 2.6 1.8 3.1-2.5 6-2.7 9-2.8 2.5.1 2.6 4.2 1 4.2-5.7 1.2-8.2 2.8-12.3 4.3-2 1.2-3.6-.3-3.6-.4s-1.1-1.1-.4-3.7q.3-3.2-2.4-3c-1.2.8-2.4 1.2-3-.3q-.6-1.4.5-2.2m136.6 5.4c.8 1 1.4 2-.1 3.8l-3.7 3.2c-.6 1-1 2.8 1 3.3 3.6 1 12-4.5 12-4.6 1.4-1 1-3 .8-3-.8-.9-2.6-.3-3.8-.5-.6 0-2.5-.2-1.6-2a11 11 0 0 0 1.6-2.9q.9-1.7-2-2.7c-2.1-.4-3-.2-5.3 0q-1.6.2-1.9 2.3c.1 2.3 1.5 2.2 3 3z\"/><path fill=\"#165d31\" d=\"M268.1 189.7c-.5 1-2.3 1-4 0s-2.7-2.6-2.1-3.5 2.3-.9 4 0 2.6 2.6 2.1 3.5m-89-53.6c-1 .3-2.4-.6-3-2s-.3-2.6.7-2.9 2.3.7 3 2 .3 2.7-.8 3zM355.2 375c9.4.4 18.2 0 27.5.5 1.7 1.5.5 5-.6 4.8l-7.8-.3c-.1-3-7.7-2.5-7.5.1-4.1.5-7.8-.1-12-.3-1.2-1.5-1-4.2.4-4.8\"/></g></svg>","se":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#005293\" d=\"M0 0h640v480H0z\"/><path fill=\"#fecb00\" d=\"M176 0v192H0v96h176v192h96V288h368v-96H272V0z\"/></svg>","sg":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M0 0h640v480H0z\"/></clipPath></defs><g fill-rule=\"evenodd\" clip-path=\"url(#a)\"><path fill=\"#fff\" d=\"M-20 0h720v480H-20z\"/><path fill=\"#df0000\" d=\"M-20 0h720v240H-20z\"/><path fill=\"#fff\" d=\"M146 40.2a84.4 84.4 0 0 0 .8 165.2 86 86 0 0 1-106.6-59 86 86 0 0 1 59-106c16-4.6 30.8-4.7 46.9-.2z\"/><path fill=\"#fff\" d=\"m133 110 4.9 15-13-9.2-12.8 9.4 4.7-15.2-12.8-9.3 15.9-.2 5-15 5 15h15.8zm17.5 52 5 15.1-13-9.2-12.9 9.3 4.8-15.1-12.8-9.4 15.9-.1 4.9-15.1 5 15h16zm58.5-.4 4.9 15.2-13-9.3-12.8 9.3 4.7-15.1-12.8-9.3 15.9-.2 5-15 5 15h15.8zm17.4-51.6 4.9 15.1-13-9.2-12.8 9.3 4.8-15.1-12.9-9.4 16-.1 4.8-15.1 5 15h16zm-46.3-34.3 5 15.2-13-9.3-12.9 9.4 4.8-15.2-12.8-9.4 15.8-.1 5-15.1 5 15h16z\"/></g></svg>","th":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\"><path fill=\"#f4f5f8\" d=\"M0 0h640v480H0z\"/><path fill=\"#2d2a4a\" d=\"M0 162.5h640v160H0z\"/><path fill=\"#a51931\" d=\"M0 0h640v82.5H0zm0 400h640v80H0z\"/></g></svg>","tr":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\"><path fill=\"#e30a17\" d=\"M0 0h640v480H0z\"/><path fill=\"#fff\" d=\"M407 247.5c0 66.2-54.6 119.9-122 119.9s-122-53.7-122-120 54.6-119.8 122-119.8 122 53.7 122 119.9\"/><path fill=\"#e30a17\" d=\"M413 247.5c0 53-43.6 95.9-97.5 95.9s-97.6-43-97.6-96 43.7-95.8 97.6-95.8 97.6 42.9 97.6 95.9z\"/><path fill=\"#fff\" d=\"m430.7 191.5-1 44.3-41.3 11.2 40.8 14.5-1 40.7 26.5-31.8 40.2 14-23.2-34.1 28.3-33.9-43.5 12-25.8-37z\"/></g></svg>","ua":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#0057b8\" d=\"M0 0h640v240H0z\"/><path fill=\"gold\" d=\"M0 240h640v240H0z\"/></g></svg>","us":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><path fill=\"#bd3d44\" d=\"M0 0h640v480H0\"/><path stroke=\"#fff\" stroke-width=\"37\" d=\"M0 55.3h640M0 129h640M0 203h640M0 277h640M0 351h640M0 425h640\"/><path fill=\"#192f5d\" d=\"M0 0h364.8v258.5H0\"/><marker id=\"a\" markerHeight=\"30\" markerWidth=\"30\"><path fill=\"#fff\" d=\"m14 0 9 27L0 10h28L5 27z\"/></marker><path fill=\"none\" marker-mid=\"url(#a)\" d=\"m0 0 16 11h61 61 61 61 60L47 37h61 61 60 61L16 63h61 61 61 61 60L47 89h61 61 60 61L16 115h61 61 61 61 60L47 141h61 61 60 61L16 166h61 61 61 61 60L47 192h61 61 60 61L16 218h61 61 61 61 60z\"/></svg>","za":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 640 480\"><defs><clipPath id=\"a\"><path fill-opacity=\".7\" d=\"M-71.9 0h682.7v512H-71.9z\"/></clipPath></defs><g clip-path=\"url(#a)\" transform=\"translate(67.4)scale(.93748)\"><g fill-rule=\"evenodd\" stroke-width=\"1pt\"><path fill=\"#000001\" d=\"M-71.9 407.8V104.4L154 256.1z\"/><path fill=\"#000c8a\" d=\"m82.2 512.1 253.6-170.6H696V512H82.2z\"/><path fill=\"#e1392d\" d=\"M66 0h630v170.8H335.7S69.3-1.7 66 0\"/><path fill=\"#ffb915\" d=\"M-71.9 64v40.4L154 256-72 407.8v40.3l284.5-192z\"/><path fill=\"#007847\" d=\"M-71.9 64V0h95l301.2 204h371.8v104.2H324.3L23 512h-94.9v-63.9l284.4-192L-71.8 64z\"/><path fill=\"#fff\" d=\"M23 0h59.2l253.6 170.7H696V204H324.3zm0 512.1h59.2l253.6-170.6H696v-33.2H324.3L23 512z\"/></g></g></svg>"};
+  function flagSrc(cc) {
+    var f = FLAGS[cc];
+    if (!f) return '';
+    return f.indexOf('data:') === 0 ? f : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(f);
+  }
+  var deviceTz = '';
+  try { deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* old browser */ }
+
+  var DEFAULTS = Object.assign({
+    city: 'auto', locOn: true,
+    show: 'digital', layout: 'big', seconds: true, date: true, h12: false,
+    labelOn: true, subOn: true, heading: 'GCSE Computer Science', subheading: 'Paper 1',
+    style: 'bold', face: 'classroom', motion: 'sweep',
+    startBtn: true, examLen: 90, startedAt: 0,
+    examOn: false, remainOn: false, start: '09:00', finish: '10:30', remainSecs: false,
+    warnOn: true, warn1: 10, warn2: 5,
+    theme: 'dark', wake: true
+  }, PRESETS.dark);
+
+  var ENUMS = {
+    show: ['digital', 'analogue', 'both'],
+    layout: ['big', 'side', 'right', 'stacked'],
+    style: STYLE_LABELS.map(function (x) { return x[0]; }),
+    face: FACE_LABELS.map(function (x) { return x[0]; }),
+    motion: ['sweep', 'tick'],
+    theme: PRESET_LABELS.map(function (x) { return x[0]; }).concat('custom'),
+    city: ['auto'].concat(Object.keys(CITY))
+  };
+  var HEX_RE = /^#[0-9a-f]{6}$/i;
+  var TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
+  function sanitise(s) {
+    Object.keys(ENUMS).forEach(function (k) { if (ENUMS[k].indexOf(s[k]) === -1) s[k] = DEFAULTS[k]; });
+    COLOUR_KEYS.forEach(function (k) { if (!HEX_RE.test(s[k])) s[k] = DEFAULTS[k]; });
+    var len = parseInt(s.examLen, 10); s.examLen = isNaN(len) ? DEFAULTS.examLen : Math.min(599, Math.max(1, len));
+    var sa = Number(s.startedAt); s.startedAt = isFinite(sa) && sa > 0 ? sa : 0;
+    ['warn1', 'warn2'].forEach(function (k) { var n = parseInt(s[k], 10); s[k] = isNaN(n) ? DEFAULTS[k] : Math.min(180, Math.max(1, n)); });
+    ['start', 'finish'].forEach(function (k) { if (!TIME_RE.test(String(s[k]))) s[k] = ''; });
+    ['heading', 'subheading'].forEach(function (k) { s[k] = String(s[k] == null ? '' : s[k]).slice(0, 80); });
+    Object.keys(DEFAULTS).forEach(function (k) { if (typeof DEFAULTS[k] === 'boolean') s[k] = !!s[k]; });
+    return s;
+  }
+
+  var params = new URLSearchParams(location.search);
+  var S = (function load() {
+    var s = Object.assign({}, DEFAULTS);
+    try { var raw = localStorage.getItem(KEY); if (raw) Object.assign(s, JSON.parse(raw)); } catch (e) { /* storage unavailable */ }
+    var th = params.get('theme');
+    if (th && PRESETS[th]) Object.assign(s, PRESETS[th], { theme: th });
+    Object.keys(DEFAULTS).forEach(function (k) {
+      if (k === 'theme' || k === 'startedAt' || !params.has(k)) return;
+      var raw = params.get(k), d = DEFAULTS[k];
+      if (typeof d === 'boolean') s[k] = raw === '1' || raw === 'true' || raw === 'on';
+      else if (typeof d === 'number') { var n = parseInt(raw, 10); if (!isNaN(n)) s[k] = n; }
+      else if (COLOUR_KEYS.indexOf(k) !== -1) { var c = '#' + raw.replace('#', ''); if (HEX_RE.test(c)) { s[k] = c; s.theme = 'custom'; } }
+      else s[k] = raw;
+    });
+    return sanitise(s);
+  })();
+  var hideControls = params.get('controls') === '0';
+
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
+
+  /* ================= Helpers ================= */
+  function $(sel) { return document.querySelector(sel); }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function hexToRgb(h) { var n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  function mix(a, b, w) { var A = hexToRgb(a), B = hexToRgb(b); return 'rgb(' + A.map(function (v, i) { return Math.round(v * w + B[i] * (1 - w)); }).join(',') + ')'; }
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+
+  var stage = $('#stage'), anaEl = $('#analogue'), digEl = $('#digital'), dateEl = $('#date');
+  var exRem = $('#exRem'), exRemL = $('#exRemL'), exRemV = $('#exRemV'), exBar = $('#exBar');
+
+  /* ================= Analogue faces ================= */
+  var ARABIC = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+  var ROMAN = ['I', 'II', 'III', 'IIII', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  var SVG_OPEN = '<svg viewBox="0 0 200 200" role="img" aria-label="Analogue clock">';
+
+  function ticks(r, w, n, dash, attrs) {
+    var p = 2 * Math.PI * r / n;
+    return '<circle cx="100" cy="100" r="' + r + '" fill="none" ' + attrs + ' stroke-width="' + w + '" stroke-dasharray="' + dash + ' ' + (p - dash).toFixed(4) + '" stroke-dashoffset="' + (dash / 2) + '"/>';
+  }
+  function numerals(r, fs, attrs, family, weight, labels) {
+    var s = '<g ' + attrs + ' font-family="' + family + '" font-weight="' + weight + '" font-size="' + fs + '" text-anchor="middle" dominant-baseline="central">';
+    for (var n = 1; n <= 12; n++) {
+      var a = n * Math.PI / 6;
+      s += '<text x="' + (100 + r * Math.sin(a)).toFixed(2) + '" y="' + (100 - r * Math.cos(a)).toFixed(2) + '">' + labels[n - 1] + '</text>';
+    }
+    return s + '</g>';
+  }
+  function gear(cx, cy, body, teethR, teethW, n, spokeW, sp, diag) {
+    var dash = (2 * Math.PI * teethR / n / 2).toFixed(3);
+    var spokes;
+    if (diag) {
+      var o = (body * Math.SQRT1_2).toFixed(2);
+      spokes = '<line x1="' + (cx - o) + '" y1="' + (cy - o) + '" x2="' + (cx + +o) + '" y2="' + (cy + +o) + '" stroke-width="' + spokeW + '"/>' +
+               '<line x1="' + (cx + +o) + '" y1="' + (cy - o) + '" x2="' + (cx - o) + '" y2="' + (cy + +o) + '" stroke-width="' + spokeW + '"/>';
+    } else {
+      spokes = '<line x1="' + (cx - body) + '" y1="' + cy + '" x2="' + (cx + body) + '" y2="' + cy + '" stroke-width="' + spokeW + '"/>' +
+               '<line x1="' + cx + '" y1="' + (cy - body) + '" x2="' + cx + '" y2="' + (cy + body) + '" stroke-width="' + spokeW + '"/>';
+    }
+    return '<g class="gear" data-cx="' + cx + '" data-cy="' + cy + '" data-sp="' + sp + '">' +
+      '<g fill="none" stroke="#C9A46A">' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + teethR + '" stroke-width="' + teethW + '" stroke-dasharray="' + dash + ' ' + dash + '"/>' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + body + '" stroke-width="' + spokeW + '"/>' + spokes +
+      '</g>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (body * 0.2).toFixed(1) + '" fill="#C9A46A"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + (body * 0.08).toFixed(1) + '" fill="#B4233A"/>' +
+    '</g>';
+  }
+
+  var FACES = {
+    classroom: function () {
+      return SVG_OPEN +
+        '<circle cx="100" cy="100" r="97" class="f-face s-rim" stroke-width="4"/>' +
+        ticks(90, 5, 60, 0.9, 'class="s-tick"') + ticks(88, 10, 12, 3, 'class="s-tick"') +
+        numerals(70, 19, 'class="f-num"', 'Atkinson Hyperlegible, system-ui, sans-serif', 700, ARABIC) +
+        '<g class="h-hour"><line x1="100" y1="112" x2="100" y2="52" class="s-hand" stroke-width="6.5" stroke-linecap="round"/></g>' +
+        '<g class="h-min"><line x1="100" y1="114" x2="100" y2="22" class="s-hand" stroke-width="4.5" stroke-linecap="round"/></g>' +
+        '<circle cx="100" cy="100" r="4.5" class="f-hand"/>' +
+        '<g class="h-sec"><line x1="100" y1="124" x2="100" y2="16" class="s-sec" stroke-width="1.6" stroke-linecap="round"/>' +
+        '<circle cx="100" cy="118" r="3.2" class="f-sec"/><circle cx="100" cy="100" r="4.5" class="f-sec"/></g>' +
+        '<circle cx="100" cy="100" r="1.6" class="f-face"/></svg>';
+    },
+    minimal: function () {
+      return SVG_OPEN +
+        '<circle cx="100" cy="100" r="97" class="f-face s-rim" stroke-width="2"/>' +
+        ticks(84, 13, 12, 3.4, 'class="s-tick"') +
+        '<g class="h-hour"><line x1="100" y1="106" x2="100" y2="54" class="s-hand" stroke-width="5" stroke-linecap="round"/></g>' +
+        '<g class="h-min"><line x1="100" y1="106" x2="100" y2="24" class="s-hand" stroke-width="3.5" stroke-linecap="round"/></g>' +
+        '<g class="h-sec"><line x1="100" y1="114" x2="100" y2="18" class="s-sec" stroke-width="1.4" stroke-linecap="round"/></g>' +
+        '<circle cx="100" cy="100" r="3.6" class="f-sec"/></svg>';
+    },
+    roman: function () {
+      return SVG_OPEN +
+        '<circle cx="100" cy="100" r="97" fill="#F5EFE2" stroke="#3A3127" stroke-width="3.5"/>' +
+        '<circle cx="100" cy="100" r="92" fill="none" stroke="#3A3127" stroke-width="0.8"/>' +
+        '<circle cx="100" cy="100" r="81" fill="none" stroke="#3A3127" stroke-width="0.8"/>' +
+        ticks(86.5, 10, 60, 0.6, 'stroke="#3A3127"') +
+        numerals(65, 17, 'fill="#2A231C"', 'Cormorant Garamond, Georgia, serif', 600, ROMAN) +
+        '<g class="h-hour"><polygon points="100,112 96.8,100 100,62 103.2,100" fill="#1E3A8A"/><circle cx="100" cy="66" r="5" fill="#F5EFE2" stroke="#1E3A8A" stroke-width="2"/><polygon points="98.6,62 100,52 101.4,62" fill="#1E3A8A"/></g>' +
+        '<g class="h-min"><polygon points="100,114 97.6,100 100,30 102.4,100" fill="#1E3A8A"/><circle cx="100" cy="34" r="3.6" fill="#F5EFE2" stroke="#1E3A8A" stroke-width="1.6"/><polygon points="99,30 100,22 101,30" fill="#1E3A8A"/></g>' +
+        '<g class="h-sec"><line x1="100" y1="122" x2="100" y2="20" stroke="#1E3A8A" stroke-width="1" stroke-linecap="round"/></g>' +
+        '<circle cx="100" cy="100" r="3.4" fill="#1E3A8A"/></svg>';
+    },
+    luxury: function () {
+      var f = 'Atkinson Hyperlegible, system-ui, sans-serif';
+      return SVG_OPEN +
+        '<defs><linearGradient id="luxSteel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3F4F6"/><stop offset="0.45" stop-color="#9CA3AF"/><stop offset="0.7" stop-color="#E5E7EB"/><stop offset="1" stop-color="#6B7280"/></linearGradient>' +
+        '<radialGradient id="luxDial" cx="0.45" cy="0.4" r="0.7"><stop offset="0" stop-color="#2A7684"/><stop offset="0.6" stop-color="#14505C"/><stop offset="1" stop-color="#0A2F37"/></radialGradient></defs>' +
+        '<circle cx="100" cy="100" r="99" fill="url(#luxSteel)"/>' +
+        '<circle cx="100" cy="100" r="94" fill="#121417"/>' +
+        ticks(88.5, 7, 6, 1.5, 'stroke="#D1D5DB"') +
+        '<g fill="#E5E7EB" font-family="' + f + '" font-weight="700" font-size="9" text-anchor="middle" dominant-baseline="central">' +
+          '<text x="176.6" y="55.8">10</text><text x="176.6" y="144.2">20</text><text x="100" y="188.5">30</text><text x="23.4" y="144.2">40</text><text x="23.4" y="55.8">50</text></g>' +
+        '<polygon points="100,15.5 95,7.5 105,7.5" fill="#F1EAD2"/>' +
+        '<circle cx="100" cy="100" r="82" fill="url(#luxSteel)"/>' +
+        '<circle cx="100" cy="100" r="80.5" fill="url(#luxDial)"/>' +
+        ticks(76, 3, 60, 0.5, 'stroke="#CBD5E1" stroke-opacity="0.75"') +
+        ticks(66, 13, 12, 4.6, 'stroke="#D1D5DB"') + ticks(66, 10, 12, 2.6, 'stroke="#F1EAD2"') +
+        '<rect x="95" y="27" width="10" height="14" fill="#D1D5DB"/><rect x="96" y="28.5" width="3.2" height="11" fill="#F1EAD2"/><rect x="100.8" y="28.5" width="3.2" height="11" fill="#F1EAD2"/>' +
+        '<rect x="153" y="92.5" width="18" height="15" rx="1.5" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1.5"/>' +
+        '<text class="lux-date" x="162" y="100.4" fill="#111418" font-family="' + f + '" font-weight="700" font-size="10" text-anchor="middle" dominant-baseline="central"></text>' +
+        '<text x="100" y="55" fill="#F3F4F6" font-family="' + f + '" font-weight="700" font-size="8.5" letter-spacing="1.6" text-anchor="middle" dominant-baseline="central">GCSECS</text>' +
+        '<text x="100" y="140" fill="#CBD5E1" font-family="' + f + '" font-size="5" letter-spacing="1.2" text-anchor="middle" dominant-baseline="central">EXAM CHRONOMETER</text>' +
+        '<g class="h-hour"><polygon points="100,110 95.2,100 100,50 104.8,100" fill="#E5E7EB"/><polygon points="100,95 97.6,89 100,57 102.4,89" fill="#F1EAD2"/></g>' +
+        '<g class="h-min"><polygon points="100,112 96.4,100 100,25 103.6,100" fill="#E5E7EB"/><polygon points="100,94 98.1,88 100,31 101.9,88" fill="#F1EAD2"/></g>' +
+        '<g class="h-sec"><line x1="100" y1="120" x2="100" y2="21" stroke="#F97316" stroke-width="1.3" stroke-linecap="round"/><circle cx="100" cy="38" r="3.4" fill="#F1EAD2" stroke="#F97316" stroke-width="1.2"/></g>' +
+        '<circle cx="100" cy="100" r="3.6" fill="#E5E7EB" stroke="#9CA3AF" stroke-width="0.8"/></svg>';
+    },
+    skeleton: function () {
+      return SVG_OPEN +
+        '<circle cx="100" cy="100" r="97" fill="#17140F" stroke="#B08D57" stroke-width="5"/>' +
+        ticks(90, 4, 60, 0.7, 'stroke="#B08D57"') +
+        '<circle cx="100" cy="100" r="86" fill="none" stroke="#8A6D42" stroke-width="0.8"/>' +
+        gear(68, 80, 26, 28.5, 5, 18, 2.5, 6, false) +
+        gear(134, 116, 21, 23.5, 5, 15, 2.2, -7.2, true) +
+        gear(88, 140, 13, 15.5, 4, 10, 2, 10.8, false) +
+        gear(140, 64, 11, 13.5, 4, 9, 2, -12, true) +
+        '<g fill="#D9BC86" font-family="Cormorant Garamond, Georgia, serif" font-weight="600" font-size="15" text-anchor="middle" dominant-baseline="central">' +
+          '<text x="100" y="24">12</text><text x="176" y="100">3</text><text x="100" y="176">6</text><text x="24" y="100">9</text></g>' +
+        '<g class="h-hour"><polygon points="100,110 95.8,100 100,52 104.2,100" fill="#17140F" fill-opacity="0.35" stroke="#E8D5A8" stroke-width="1.8" stroke-linejoin="round"/></g>' +
+        '<g class="h-min"><polygon points="100,112 96.8,100 100,24 103.2,100" fill="#17140F" fill-opacity="0.35" stroke="#E8D5A8" stroke-width="1.6" stroke-linejoin="round"/></g>' +
+        '<g class="h-sec"><line x1="100" y1="120" x2="100" y2="18" stroke="#F2E3BF" stroke-width="1" stroke-linecap="round"/></g>' +
+        '<circle cx="100" cy="100" r="3.6" fill="#E8D5A8"/></svg>';
+    }
+  };
+
+  var A = {};
+  function buildFace() {
+    anaEl.innerHTML = FACES[S.face]();
+    A.hour = anaEl.querySelector('.h-hour');
+    A.min = anaEl.querySelector('.h-min');
+    A.sec = anaEl.querySelector('.h-sec');
+    A.date = anaEl.querySelector('.lux-date');
+    A.gears = Array.prototype.map.call(anaEl.querySelectorAll('.gear'), function (g) {
+      return { g: g, cx: +g.getAttribute('data-cx'), cy: +g.getAttribute('data-cy'), sp: +g.getAttribute('data-sp') };
+    });
+    A.lastDay = null;
+  }
+  function rot(node, deg, cx, cy) { if (node) node.setAttribute('transform', 'rotate(' + deg.toFixed(3) + ' ' + (cx || 100) + ' ' + (cy || 100) + ')'); }
+  function updateAnalogue(now) {
+    var secs = now.getSeconds() + (S.motion === 'sweep' ? now.getMilliseconds() / 1000 : 0);
+    var mins = now.getMinutes() + now.getSeconds() / 60;
+    var hrs = (now.getHours() % 12) + mins / 60;
+    rot(A.hour, hrs * 30); rot(A.min, mins * 6); rot(A.sec, secs * 6);
+    if (A.gears.length) {
+      var t = (now.getTime() % 3600000) / 1000;
+      A.gears.forEach(function (x) { rot(x.g, (t * x.sp) % 360, x.cx, x.cy); });
+    }
+    if (A.date && A.lastDay !== now.getDate()) { A.lastDay = now.getDate(); A.date.textContent = A.lastDay; }
+  }
+
+  /* ================= Digital styles ================= */
+  var D = '<span class="d"></span>';
+  function setDigits(nodes, str) {
+    for (var i = 0; i < nodes.length && i < str.length; i++) {
+      var ch = str.charAt(i), n = nodes[i];
+      if (ch === ' ') { n.style.display = 'none'; continue; }
+      n.style.display = '';
+      if (n.textContent !== ch) n.textContent = ch;
+    }
+  }
+  /* Fixed-width digit slots stop the time jiggling as digits change.
+     Slot width = widest digit in whichever font actually loaded. */
+  function measureSlots(e) {
+    var d = e.querySelector('.d');
+    if (!d) { e.style.removeProperty('--dw'); return; }
+    var cs = getComputedStyle(d);
+    var probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap';
+    probe.style.fontFamily = cs.fontFamily; probe.style.fontWeight = cs.fontWeight;
+    probe.style.fontStyle = cs.fontStyle; probe.style.fontSize = '200px';
+    document.body.appendChild(probe);
+    var max = 0;
+    for (var i = 0; i < 10; i++) { probe.textContent = String(i); max = Math.max(max, probe.getBoundingClientRect().width); }
+    probe.parentNode.removeChild(probe);
+    if (max) e.style.setProperty('--dw', (max / 200 + 0.03).toFixed(3) + 'em');
+  }
+  function textStyle(wrapOpen, wrapClose) {
+    return {
+      build: function (e) {
+        e.innerHTML = wrapOpen + D + D + '<span class="c">:</span>' + D + D + '<span class="secs"><span class="c">:</span>' + D + D + '</span><span class="ap"></span>' + wrapClose;
+        e._d = e.querySelectorAll('.d'); e._ap = e.querySelector('.ap');
+      },
+      update: function (e, t) { setDigits(e._d, t.h + t.m + t.s); e._ap.textContent = t.ap; }
+    };
+  }
+
+  var SEGS = { a: [.08, 0, .28, .08], b: [.36, .08, .08, .28], c: [.36, .44, .08, .28], d: [.08, .72, .28, .08], e: [0, .44, .08, .28], f: [0, .08, .08, .28], g: [.08, .36, .28, .08] };
+  var SEGMAP = { '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcdfg' };
+  var SEG_DIGIT = '<div class="sd">' + Object.keys(SEGS).map(function (k) {
+    var g = SEGS[k];
+    return '<i data-s="' + k + '" style="left:' + g[0] + 'em;top:' + g[1] + 'em;width:' + g[2] + 'em;height:' + g[3] + 'em"></i>';
+  }).join('') + '</div>';
+  var SEG_COLON = '<div class="scol"><i></i><i></i></div>';
+
+  var CARD = '<div class="fc"><div class="fh ft"><span></span></div><div class="fh fb"><span></span></div><div class="fh ft f1"><span></span></div><div class="fh fb f2"><span></span></div></div>';
+  function flipTo(c, v) {
+    if (v === ' ') { c.style.display = 'none'; return; }
+    c.style.display = '';
+    var old = c.getAttribute('data-v');
+    if (old === v) return;
+    var sp = c.querySelectorAll('span');
+    c.setAttribute('data-v', v);
+    if (old === null || document.hidden) {
+      for (var i = 0; i < 4; i++) sp[i].textContent = v;
+      return;
+    }
+    sp[0].textContent = v; sp[1].textContent = old; sp[2].textContent = old; sp[3].textContent = v;
+    c.classList.remove('go'); void c.offsetWidth; c.classList.add('go');
+    clearTimeout(c._t);
+    c._t = setTimeout(function () { sp[1].textContent = v; c.classList.remove('go'); }, 520);
+  }
+
+  var TUBE = '<div class="tube"></div>';
+  var NCOL = '<div class="ncol"><i></i><i></i></div>';
+  var BITS = [2, 4, 3, 4, 3, 4];
+
+  var STYLES = {
+    bold: {
+      build: function (e) {
+        e.innerHTML = '<div class="dg-bold"><div class="hm">' + D + D + '<span class="c">:</span>' + D + D + '</div>' +
+          '<div class="ss"><div class="sdg secs">' + D + D + '</div><div class="ap"></div></div></div>';
+        e._d = e.querySelectorAll('.d'); e._ap = e.querySelector('.ap');
+      },
+      update: function (e, t) { setDigits(e._d, t.h + t.m + t.s); e._ap.textContent = t.ap; }
+    },
+    plain: textStyle('<div class="dg-plain">', '</div>'),
+    dotmatrix: textStyle('<div class="dg-dot"><div class="dot-in">', '</div></div>'),
+    flip: {
+      build: function (e) {
+        e.innerHTML = '<div class="dg-flip"><div class="fg">' + CARD + CARD + '</div><span class="fcol">:</span><div class="fg">' + CARD + CARD + '</div>' +
+          '<span class="fcol secs">:</span><div class="fg secs">' + CARD + CARD + '</div><span class="ap"></span></div>';
+        e._c = e.querySelectorAll('.fc'); e._ap = e.querySelector('.ap');
+      },
+      update: function (e, t) {
+        var s = t.h + t.m + t.s;
+        for (var i = 0; i < e._c.length; i++) flipTo(e._c[i], s.charAt(i));
+        e._ap.textContent = t.ap;
+      }
+    },
+    segment: {
+      build: function (e) {
+        e.innerHTML = '<div class="dg-seg">' + SEG_DIGIT + SEG_DIGIT + SEG_COLON + SEG_DIGIT + SEG_DIGIT +
+          '<div class="secs">' + SEG_COLON + SEG_DIGIT + SEG_DIGIT + '</div><span class="ap"></span></div>';
+        e._d = e.querySelectorAll('.sd'); e._ap = e.querySelector('.ap');
+      },
+      update: function (e, t) {
+        var s = t.h + t.m + t.s;
+        for (var i = 0; i < e._d.length; i++) {
+          var ch = s.charAt(i), dg = e._d[i];
+          if (ch === ' ') { dg.style.display = 'none'; continue; }
+          dg.style.display = '';
+          var on = SEGMAP[ch];
+          var segs = dg.children;
+          for (var j = 0; j < segs.length; j++) segs[j].classList.toggle('on', on.indexOf(segs[j].getAttribute('data-s')) !== -1);
+        }
+        e._ap.textContent = t.ap;
+      }
+    },
+    nixie: {
+      build: function (e) {
+        e.innerHTML = '<div class="dg-nixie">' + TUBE + TUBE + NCOL + TUBE + TUBE + '<div class="grp secs">' + NCOL + TUBE + TUBE + '</div><span class="ap"></span></div>';
+        e._d = e.querySelectorAll('.tube'); e._ap = e.querySelector('.ap');
+      },
+      update: function (e, t) { setDigits(e._d, t.h + t.m + t.s); e._ap.textContent = t.ap; }
+    },
+    terminal: {
+      build: function (e) {
+        e.innerHTML = '<div class="dg-term"><div class="tm">Python 3 · exam clock</div>' +
+          '<div><b>&gt;&gt;&gt;</b> from datetime import datetime</div>' +
+          '<div><b>&gt;&gt;&gt;</b> datetime.now().strftime(<span class="fmt"></span>)</div>' +
+          '<div class="tout"><span class="out"></span><span class="cur"></span></div></div>';
+        e._fmt = e.querySelector('.fmt'); e._out = e.querySelector('.out');
+      },
+      update: function (e, t) {
+        e._fmt.textContent = '"' + (S.h12 ? '%I' : '%H') + ':%M' + (S.seconds ? ':%S' : '') + (S.h12 ? ' %p' : '') + '"';
+        e._out.textContent = "'" + t.hp + ':' + t.m + (S.seconds ? ':' + t.s : '') + (S.h12 ? ' ' + t.ap : '') + "'";
+      }
+    },
+    binary: {
+      build: function (e) {
+        var html = '<div class="dg-bin"><div class="bcol">' + [8, 4, 2, 1].map(function (n) { return '<span class="bl">' + n + '</span>'; }).join('') + '<span class="bl"></span></div>';
+        BITS.forEach(function (n, i) {
+          html += '<div class="bcol bdig' + (i >= 4 ? ' secs' : '') + (i % 2 === 0 ? ' bpair' : '') + '">' +
+            [8, 4, 2, 1].map(function (v) { return '<i class="bit' + (v >= (1 << n) ? ' none' : '') + '" data-v="' + v + '"></i>'; }).join('') +
+            '<span class="bden"></span></div>';
+        });
+        e.innerHTML = html + '</div>';
+        e._cols = e.querySelectorAll('.bdig');
+      },
+      update: function (e, t) {
+        var s = (t.h + t.m + t.s).replace(' ', '0');
+        for (var i = 0; i < e._cols.length; i++) {
+          var dgt = +s.charAt(i), col = e._cols[i];
+          var bits = col.querySelectorAll('.bit');
+          for (var j = 0; j < bits.length; j++) bits[j].classList.toggle('on', (dgt & +bits[j].getAttribute('data-v')) !== 0);
+          col.querySelector('.bden').textContent = dgt;
+        }
+      }
+    },
+    hex: {
+      build: function (e) {
+        var G = '<div class="hg"><span class="hv"></span><span class="hd"></span></div>';
+        e.innerHTML = '<div class="dg-hex"><span class="hx-pre">0x</span>' + G + '<span class="hc">:</span>' + G + '<span class="hc secs">:</span>' + G.replace('class="hg"', 'class="hg secs"') + '</div>';
+        e._v = e.querySelectorAll('.hv'); e._d = e.querySelectorAll('.hd');
+      },
+      update: function (e, t) {
+        [t.hn, t.M, t.S].forEach(function (n, i) {
+          e._v[i].textContent = n.toString(16).toUpperCase().padStart(2, '0');
+          e._d[i].textContent = n;
+        });
+      }
+    },
+    unix: {
+      build: function (e) {
+        e.innerHTML = '<div class="dg-unix"><span class="ux"></span><span class="ux-cap">Unix time: seconds since 1 January 1970</span></div>';
+        e._u = e.querySelector('.ux');
+      },
+      update: function (e, t) { e._u.textContent = Math.floor((t.real || t.date).getTime() / 1000); }
+    }
+  };
+
+  function timeParts(d) {
+    var H = d.getHours(), M = d.getMinutes(), Sx = d.getSeconds();
+    var h, hp, ap = '', hn = H;
+    if (S.h12) {
+      hn = H % 12 || 12;
+      h = (hn < 10 ? ' ' : '') + hn; hp = pad(hn); ap = H < 12 ? 'AM' : 'PM';
+    } else { h = pad(H); hp = h; }
+    return { h: h, hp: hp, m: pad(M), s: pad(Sx), ap: ap, hn: hn, M: M, S: Sx, date: d };
+  }
+
+  /* ================= Exam panel ================= */
+  function atToday(str, base) {
+    var m = TIME_RE.exec(str || '');
+    if (!m) return null;
+    var d = new Date(base); d.setHours(+m[1], +m[2], 0, 0); return d;
+  }
+  function fmtClock(str) {
+    var m = TIME_RE.exec(str || '');
+    if (!m) return '--:--';
+    var H = +m[1];
+    if (!S.h12) return pad(H) + ':' + m[2];
+    return (H % 12 || 12) + ':' + m[2] + (H < 12 ? ' am' : ' pm');
+  }
+  function fmtDur(ms) {
+    if (S.remainSecs) {
+      var tot = Math.ceil(ms / 1000), h = Math.floor(tot / 3600), mm = Math.floor(tot % 3600 / 60), ss = tot % 60;
+      return h ? h + ':' + pad(mm) + ':' + pad(ss) : mm + ':' + pad(ss);
+    }
+    var mins = Math.ceil(ms / 60000), hh = Math.floor(mins / 60), rm = mins % 60;
+    return hh ? hh + ' h ' + pad(rm) + ' min' : rm + ' min';
+  }
+  /* Flashing when time is up: stops when the box is clicked or tapped, and stays
+     stopped for that exam (same start, finish and day) until the page is reloaded. */
+  var flashOffKey = '', flashing = false;
+  function examKey(now) { return S.start + '|' + S.finish + '|' + now.getFullYear() + '-' + now.getMonth() + '-' + now.getDate(); }
+  function setFlash(on) {
+    if (on === flashing) return;
+    flashing = on;
+    exRem.classList.toggle('flash', on);
+    if (on) { exRem.setAttribute('role', 'button'); exRem.setAttribute('tabindex', '0'); exRem.setAttribute('aria-label', 'Time is up. Activate to stop flashing'); }
+    else { exRem.removeAttribute('role'); exRem.removeAttribute('tabindex'); exRem.removeAttribute('aria-label'); }
+  }
+  var lastExamKey = '';
+  function stopFlash(e) {
+    if (!flashing) return;
+    if (e) { e.stopPropagation(); if (e.type === 'keydown') e.preventDefault(); }
+    flashOffKey = lastExamKey;
+    setFlash(false);
+  }
+  exRem.addEventListener('click', stopFlash);
+  exRem.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') stopFlash(e); });
+  function setRem(label, value, pct, cls) {
+    if (exRemL.textContent !== label) exRemL.textContent = label;
+    if (exRemV.textContent !== value) exRemV.textContent = value;
+    exBar.style.width = (Math.max(0, Math.min(1, pct)) * 100).toFixed(2) + '%';
+    exRem.classList.toggle('warn1', cls === 'warn1');
+    exRem.classList.toggle('warn2', cls === 'warn2');
+  }
+  function updateExam(now) {
+    if (!S.examOn && !S.remainOn) { setFlash(false); return; }
+    $('#exStartV').textContent = fmtClock(S.start);
+    $('#exFinishV').textContent = fmtClock(S.finish);
+    if (!S.remainOn) { setFlash(false); return; }
+    var st = atToday(S.start, now), fi = atToday(S.finish, now);
+    if (!st || !fi || fi <= st) { setFlash(false); setRem('Time remaining', '--:--', 0, ''); return; }
+    /* Started with the button: the exam is already under way even though the displayed
+       start is rounded up to the next whole minute. */
+    var began = S.startedAt > 0 && S.startedAt <= st.getTime() && st.getTime() - S.startedAt < 60000;
+    if (now < st && !began) { setFlash(false); setRem('Starts in', fmtDur(st - now), 0, ''); return; }
+    lastExamKey = examKey(now);
+    if (now >= fi) { setRem('Exam finished', 'Time is up', 1, 'warn2'); setFlash(flashOffKey !== lastExamKey); return; }
+    setFlash(false);
+    var left = fi - now, minsLeft = left / 60000, cls = '';
+    if (S.warnOn) {
+      var w1 = Math.max(S.warn1, S.warn2), w2 = Math.min(S.warn1, S.warn2);
+      if (minsLeft <= w2) cls = 'warn2'; else if (minsLeft <= w1) cls = 'warn1';
+    }
+    var st0 = began ? new Date(S.startedAt) : st;
+    /* In minutes view, don't show the extra rounding seconds as an extra minute. */
+    var shown = began && !S.remainSecs ? Math.min(left, fi - st) : left;
+    setRem('Time remaining', fmtDur(shown), (now - st0) / (fi - st0), cls);
+  }
+
+  /* ================= Apply settings ================= */
+  var builtStyle = null, builtFace = null, lastSecKey = -1, lastDateStr = '';
+
+  /* Layouts:
+     big     – digital only: huge digits, info beside/below
+     side    – clock fills the left of the screen, everything else on the right
+     right   – clock fills the right of the screen, everything else on the left
+     stacked – one centred column
+     With no analogue clock showing, "side"/"right" fall back to "big".
+     With an analogue clock showing, "big" behaves like "side" so the clock stays as large as possible. */
+  function effLayout() {
+    var L = S.layout;
+    if (S.show === 'digital') return L === 'stacked' ? 'stacked' : 'big';
+    if (L === 'big') return 'side';
+    return L;
+  }
+  function isSplit() { var L = effLayout(); return L === 'side' || L === 'right'; }
+  var clockPane = $('#clockPane');
+  function applyColours() {
+    var r = document.documentElement.style;
+    COLOUR_KEYS.forEach(function (k) { r.setProperty('--' + k, S[k]); });
+    r.setProperty('--muted', mix(S.secondary, S.bg, 0.7));
+    r.setProperty('--track', mix(S.secondary, S.surface, 0.18));
+    r.setProperty('--rim', mix(S.secondary, S.surface, 0.6));
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', S.bg);
+  }
+  function apply() {
+    applyColours();
+    var cls = ['layout-' + effLayout(), 'show-' + S.show];
+    if (!S.seconds) cls.push('no-secs');
+    if (!S.date) cls.push('no-date');
+    var showHead = S.labelOn && !!S.heading, showSub = S.subOn && !!S.subheading;
+    if (!showHead) cls.push('no-head');
+    if (!showSub) cls.push('no-sub');
+    if (!showHead && !showSub) cls.push('no-label');
+    if (!S.examOn) cls.push('no-exam');
+    if (!S.remainOn) cls.push('no-remain');
+    if (!renderLocation() || !S.locOn) cls.push('no-loc');
+    var split = isSplit();
+    if (split) cls.push('split');
+    stage.className = cls.join(' ');
+    clockPane.className = stage.className;
+    if (split && anaEl.parentNode !== clockPane) clockPane.appendChild(anaEl);
+    if (!split && anaEl.parentNode !== stage) stage.insertBefore(anaEl, stage.firstChild);
+    if (builtStyle !== S.style) { STYLES[S.style].build(digEl); builtStyle = S.style; measureSlots(digEl); }
+    if (builtFace !== S.face) { buildFace(); builtFace = S.face; }
+    $('#heading').textContent = S.heading;
+    $('#subheading').textContent = S.subheading;
+    document.body.classList.toggle('no-controls', hideControls);
+    document.body.classList.toggle('no-startbtn', !S.startBtn);
+    if (S.wake) requestWake(); else releaseWake();
+    lastSecKey = -1; lastDateStr = '';
+    tick(true);
+    fit();
+  }
+
+  /* ================= Fit to screen ================= */
+  function placeStage(x, y, aw, ah, maxScale) {
+    var w = stage.offsetWidth, h = stage.offsetHeight;
+    if (!w || !h) return;
+    var s = Math.max(0.05, Math.min(aw / w, ah / h, maxScale || Infinity));
+    stage.style.transform = 'scale(' + s + ')';
+    stage.style.left = (x + (aw - w * s) / 2) + 'px';
+    stage.style.top = (y + (ah - h * s) / 2) + 'px';
+  }
+  function placeClock(x, y, size) {
+    clockPane.style.left = x + 'px'; clockPane.style.top = y + 'px';
+    clockPane.style.width = size + 'px'; clockPane.style.height = size + 'px';
+  }
+  function fit() {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var pad = Math.max(12, Math.min(vw, vh) * 0.05);
+    if (!stage.classList.contains('split')) {
+      clockPane.style.display = 'none';
+      stage.style.visibility = '';
+      placeStage(pad, pad, vw - 2 * pad, vh - 2 * pad);
+      return;
+    }
+    /* Split: the clock gets as much of the screen as possible; the rest goes beside it
+       (landscape) or below it (portrait). */
+    clockPane.style.display = 'block';
+    var hasInfo = stage.offsetWidth > 2 && stage.offsetHeight > 2;
+    stage.style.visibility = hasInfo ? '' : 'hidden';
+    var size;
+    if (!hasInfo) {
+      size = Math.min(vw, vh) - 2 * pad;
+      placeClock((vw - size) / 2, (vh - size) / 2, size);
+      return;
+    }
+    var right = stage.classList.contains('layout-right');
+    if (vw >= vh * 1.05) {
+      size = Math.max(80, Math.min(vh - 2 * pad, vw * 0.6 - pad));
+      var infoW = vw - size - 3 * pad;
+      var clockX = right ? vw - pad - size : pad;
+      var infoX = right ? pad : pad + size + pad;
+      placeClock(clockX, (vh - size) / 2, size);
+      placeStage(infoX, pad, infoW, vh - 2 * pad, size / 520);
+    } else {
+      size = Math.max(80, Math.min(vw - 2 * pad, vh * 0.6 - pad));
+      placeClock((vw - size) / 2, pad, size);
+      placeStage(pad, 2 * pad + size, vw - 2 * pad, vh - size - 3 * pad, size / 520);
+    }
+  }
+  if ('ResizeObserver' in window) new ResizeObserver(function () { fit(); }).observe(stage);
+  window.addEventListener('resize', function () {
+    var want = 'layout-' + effLayout();
+    if (!stage.classList.contains(want)) apply(); else fit();
+  });
+  function onFonts() { measureSlots(digEl); fit(); }
+  if (document.fonts) {
+    if (document.fonts.ready) document.fonts.ready.then(onFonts);
+    if (document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', onFonts);
+  }
+
+  /* ================= World clock ================= */
+  /* The chosen place's wall time is shown by shifting the real time so that the
+     browser's ordinary local-time readers (getHours, etc.) return that place's time. */
+  var fmtCache = {}, zoneShift = 0;
+  function zoneFmt(tz) {
+    if (!(tz in fmtCache)) {
+      try {
+        fmtCache[tz] = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch (e) { fmtCache[tz] = null; }
+    }
+    return fmtCache[tz];
+  }
+  function shiftFor(tz, date) {
+    var f = zoneFmt(tz);
+    if (!f || !f.formatToParts) return 0;
+    var p = {};
+    f.formatToParts(date).forEach(function (x) { p[x.type] = x.value; });
+    var asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second);
+    var whole = Math.floor(date.getTime() / 1000) * 1000;
+    return (asUTC - whole) + date.getTimezoneOffset() * 60000;
+  }
+  function activeTz() { return S.city === 'auto' ? null : CITY[S.city].tz; }
+  function locInfo() {
+    if (S.city !== 'auto') { var c = CITY[S.city]; return { name: c.city, sub: c.country === c.city ? '' : c.country, cc: c.cc, country: c.country }; }
+    for (var i = 0; i < CITIES.length; i++) {
+      if (CITIES[i][3] === deviceTz) return { name: CITIES[i][2], sub: '', cc: CITIES[i][4], country: CITIES[i][2] };
+    }
+    return { name: deviceTz ? deviceTz.split('/').pop().replace(/_/g, ' ') : '', sub: '', cc: '', country: '' };
+  }
+  var flagImg = $('#flag');
+  flagImg.addEventListener('error', function () { flagImg.classList.add('hide'); fit(); });
+  flagImg.addEventListener('load', function () { flagImg.classList.remove('hide'); });
+  function renderLocation() {
+    var L = locInfo();
+    $('#locName').textContent = L.name;
+    $('#locSub').textContent = L.sub;
+    if (L.cc && FLAGS[L.cc]) {
+      var src = flagSrc(L.cc);
+      if (src && flagImg.getAttribute('data-cc') !== L.cc) { flagImg.classList.remove('hide'); flagImg.setAttribute('data-cc', L.cc); flagImg.setAttribute('src', src); }
+      flagImg.alt = 'Flag of ' + L.country;
+    } else {
+      flagImg.removeAttribute('src'); flagImg.removeAttribute('data-cc'); flagImg.alt = ''; flagImg.classList.add('hide');
+    }
+    return !!L.name;
+  }
+
+  /* ================= Main loop ================= */
+  function tick(force) {
+    var real = new Date();
+    var key = Math.floor(real.getTime() / 1000);
+    var newSec = force === true || key !== lastSecKey;
+    if (newSec) { var tz = activeTz(); zoneShift = tz ? shiftFor(tz, real) : 0; }
+    var now = zoneShift ? new Date(real.getTime() + zoneShift) : real;
+    if (S.show !== 'digital') updateAnalogue(now);
+    if (newSec) {
+      lastSecKey = key;
+      if (S.show !== 'analogue') { var tp = timeParts(now); tp.real = real; STYLES[S.style].update(digEl, tp); }
+      if (S.date) {
+        var ds = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        if (ds !== lastDateStr) { lastDateStr = ds; dateEl.textContent = ds; }
+      }
+      updateExam(now);
+    }
+  }
+  function loop() { tick(); requestAnimationFrame(loop); }
+
+  /* ================= Wake lock ================= */
+  var wakeLock = null;
+  function requestWake() {
+    if (!S.wake || wakeLock || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    navigator.wakeLock.request('screen').then(function (l) {
+      wakeLock = l;
+      l.addEventListener('release', function () { wakeLock = null; });
+    }).catch(function () { /* not allowed here */ });
+  }
+  function releaseWake() { if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; } }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { requestWake(); lastSecKey = -1; } });
+  window.addEventListener('pointerdown', requestWake);
+
+  /* ================= Full screen ================= */
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function fsEl() { return document.fullscreenElement || document.webkitFullscreenElement; }
+  function canFS() {
+    var d = document.documentElement;
+    return !!(d.requestFullscreen || d.webkitRequestFullscreen) && !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  }
+  function fsHelp() {
+    if (isIOS && !(document.documentElement.webkitRequestFullscreen || document.documentElement.requestFullscreen)) {
+      toast('iPhone doesn’t allow full screen for web pages. Tap Share, then “Add to Home Screen”, to open the clock without browser bars.');
+    } else if (window.self !== window.top) {
+      toast('Full screen is blocked in this embed. Open the clock in its own tab, or ask the site owner to add allow="fullscreen" to the iframe.');
+    } else {
+      toast('Full screen isn’t available in this browser.');
+    }
+  }
+  function toggleFS() {
+    if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    if (!canFS()) { fsHelp(); return; }
+    var d = document.documentElement;
+    try {
+      var p = d.requestFullscreen ? d.requestFullscreen() : d.webkitRequestFullscreen();
+      if (p && p.catch) p.catch(fsHelp);
+    } catch (e) { fsHelp(); }
+  }
+  function onFSChange() { $('#btnFullText').textContent = fsEl() ? 'Exit full screen' : 'Full screen'; $('#btnFull').setAttribute('aria-label', fsEl() ? 'Exit full screen' : 'Full screen'); setTimeout(fit, 50); }
+  document.addEventListener('fullscreenchange', onFSChange);
+  document.addEventListener('webkitfullscreenchange', onFSChange);
+
+  /* ================= Toast ================= */
+  var toastT;
+  function toast(msg) {
+    var t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('show'); }, 6000);
+  }
+
+  /* ================= Settings drawer ================= */
+  var SCHEMA = [
+    { title: 'Display', items: [
+      { k: 'show', t: 'seg', label: 'Show', opts: [['digital', 'Digital'], ['analogue', 'Analogue'], ['both', 'Both']] },
+      { k: 'layout', t: 'seg', label: 'Layout', opts: [['big', 'Big digits'], ['side', 'Clock left'], ['right', 'Clock right'], ['stacked', 'Stacked']] },
+      { t: 'hint', text: 'Clock left and Clock right make the analogue clock as big as the screen allows, with everything else beside it (or below it on a phone held upright).' },
+      { k: 'seconds', t: 'toggle', label: 'Show seconds' },
+      { k: 'date', t: 'toggle', label: 'Show date' },
+      { k: 'h12', t: 'toggle', label: '12-hour clock' },
+      { k: 'heading', t: 'text', label: 'Heading' },
+      { k: 'labelOn', t: 'toggle', label: 'Show heading' },
+      { k: 'subheading', t: 'text', label: 'Subheading' },
+      { k: 'subOn', t: 'toggle', label: 'Show subheading' }
+    ] },
+    { title: 'Location (world clock)', items: [
+      { k: 'city', t: 'select', label: 'Show the time in' },
+      { k: 'locOn', t: 'toggle', label: 'Show flag and place name' },
+      { t: 'hint', text: 'The time, date and exam times all follow the place you choose. Daylight saving changes are handled automatically.' }
+    ] },
+    { title: 'Digital style', items: [{ k: 'style', t: 'grid', label: 'Digital style', opts: STYLE_LABELS }] },
+    { title: 'Analogue face', items: [
+      { k: 'face', t: 'grid', label: 'Analogue face', opts: FACE_LABELS },
+      { k: 'motion', t: 'seg', label: 'Second hand', opts: [['sweep', 'Smooth sweep'], ['tick', 'Tick']] }
+    ] },
+    { title: 'Exam', items: [
+      { k: 'startBtn', t: 'toggle', label: 'Show \u201cStart exam\u201d button' },
+      { k: 'examLen', t: 'number', label: 'Usual exam length (minutes)' },
+      { t: 'hint', text: 'Press Start exam when candidates are told to begin. It fills in the start and finish times below for you.' },
+      { k: 'examOn', t: 'toggle', label: 'Show start and finish times' },
+      { k: 'remainOn', t: 'toggle', label: 'Show time remaining' },
+      { k: 'start', t: 'time', label: 'Start time' },
+      { k: 'finish', t: 'time', label: 'Finish time' },
+      { k: 'remainSecs', t: 'toggle', label: 'Show seconds in countdown' },
+      { k: 'warnOn', t: 'toggle', label: 'Warning colours' },
+      { k: 'warn1', t: 'number', label: 'First warning (minutes left)' },
+      { k: 'warn2', t: 'number', label: 'Final warning (minutes left)' }
+    ] },
+    { title: 'Colours', items: [
+      { k: 'theme', t: 'grid', label: 'Colour preset', opts: PRESET_LABELS, swatch: true },
+      { k: 'bg', t: 'color', label: 'Background' },
+      { k: 'primary', t: 'color', label: 'Main digits and numerals' },
+      { k: 'secondary', t: 'color', label: 'Seconds, date and hands' },
+      { k: 'accent', t: 'color', label: 'Second hand and highlights' },
+      { k: 'surface', t: 'color', label: 'Panels and clock face' }
+    ] },
+    { title: 'Screen and sharing', items: [
+      { k: 'wake', t: 'toggle', label: 'Keep screen awake' },
+      { t: 'share' },
+      { t: 'reset' }
+    ] }
+  ];
+
+  function setVal(k, v) {
+    if (k === 'theme') { Object.assign(S, PRESETS[v]); S.theme = v; }
+    else { S[k] = v; if (COLOUR_KEYS.indexOf(k) !== -1) S.theme = 'custom'; }
+    if (k === 'start' || k === 'finish' || k === 'city') S.startedAt = 0;
+    sanitise(S); save(); apply(); syncSettings();
+  }
+
+  function control(it) {
+    var w = el('div', 'ctl ctl-' + it.t);
+    if (it.t === 'seg' || it.t === 'grid') {
+      if (it.t === 'seg') w.appendChild(el('span', 'lab', it.label));
+      var g = el('div', it.t);
+      g.setAttribute('role', 'group'); g.setAttribute('aria-label', it.label);
+      it.opts.forEach(function (o) {
+        var b = el('button');
+        b.type = 'button'; b.setAttribute('data-k', it.k); b.setAttribute('data-v', o[0]);
+        if (it.swatch) {
+          var p = PRESETS[o[0]];
+          b.innerHTML = '<span class="swatch" style="background:' + p.bg + ';color:' + p.primary + '">9</span>';
+          b.appendChild(document.createTextNode(o[1]));
+        } else b.textContent = o[1];
+        b.addEventListener('click', function () { setVal(it.k, o[0]); });
+        g.appendChild(b);
+      });
+      w.appendChild(g);
+    } else if (it.t === 'toggle') {
+      var lab = el('label', 'row');
+      lab.appendChild(el('span', null, null)).textContent = it.label;
+      var cb = el('input'); cb.type = 'checkbox'; cb.setAttribute('data-k', it.k);
+      cb.addEventListener('change', function () { setVal(it.k, cb.checked); });
+      lab.appendChild(cb); w.appendChild(lab);
+    } else if (it.t === 'text') {
+      var id = 'f-' + it.k;
+      var l2 = el('label', 'lab'); l2.htmlFor = id; l2.textContent = it.label;
+      var inp = el('input', 'field'); inp.type = 'text'; inp.id = id; inp.maxLength = 80; inp.setAttribute('data-k', it.k);
+      inp.addEventListener('input', function () { setVal(it.k, inp.value); });
+      w.appendChild(l2); w.appendChild(inp);
+    } else if (it.t === 'time' || it.t === 'number' || it.t === 'color') {
+      var l3 = el('label', 'row');
+      l3.appendChild(el('span')).textContent = it.label;
+      var f = el('input', it.t === 'color' ? null : 'field');
+      f.type = it.t; f.setAttribute('data-k', it.k);
+      if (it.t === 'number') { f.min = 1; f.max = 180; f.inputMode = 'numeric'; }
+      if (it.t === 'time') f.step = 60;
+      f.addEventListener(it.t === 'color' ? 'input' : 'change', function () {
+        setVal(it.k, it.t === 'number' ? parseInt(f.value, 10) : f.value);
+      });
+      l3.appendChild(f); w.appendChild(l3);
+    } else if (it.t === 'select') {
+      var sid = 'f-' + it.k;
+      var l4 = el('label', 'lab'); l4.htmlFor = sid; l4.textContent = it.label;
+      var sel = el('select', 'field'); sel.id = sid; sel.setAttribute('data-k', it.k);
+      var addOpt = function (parent, v, text) { var o = el('option'); o.value = v; o.textContent = text; parent.appendChild(o); };
+      var devLabel = 'This device (automatic)';
+      addOpt(sel, 'auto', devLabel);
+      addOpt(sel, 'utc', 'UTC (Coordinated Universal Time)');
+      var groups = {};
+      CITIES.slice().sort(function (a, b) { return a[1].localeCompare(b[1]); }).forEach(function (c) {
+        if (!groups[c[5]]) { groups[c[5]] = el('optgroup'); groups[c[5]].label = c[5]; }
+        addOpt(groups[c[5]], c[0], c[1] === c[2] ? c[1] : c[1] + ', ' + c[2]);
+      });
+      ['Europe', 'Americas', 'Africa', 'Middle East and Asia', 'Oceania'].forEach(function (g) { if (groups[g]) sel.appendChild(groups[g]); });
+      sel.addEventListener('change', function () { setVal(it.k, sel.value); });
+      w.appendChild(l4); w.appendChild(sel);
+    } else if (it.t === 'hint') {
+      w.appendChild(el('p', 'hint')).textContent = it.text;
+    } else if (it.t === 'share') {
+      w.innerHTML = '<span class="lab">Share or embed these settings</span>' +
+        '<div class="btns"><button type="button" class="btn" id="btnLink">Copy link</button><button type="button" class="btn" id="btnEmbed">Copy embed code</button></div>' +
+        '<textarea id="shareOut" class="field" readonly aria-label="Link or embed code" rows="3"></textarea>' +
+        '<p class="hint">Links open the clock with exactly these settings. Keyboard: E starts an exam, S opens settings, F toggles full screen.</p>';
+      w.querySelector('#btnLink').addEventListener('click', function () { copyOut(shareURL(), 'Link copied'); });
+      w.querySelector('#btnEmbed').addEventListener('click', function () {
+        copyOut('<iframe src="' + shareURL() + '" title="Exam clock" style="width:100%;aspect-ratio:16/9;border:0" allow="fullscreen; screen-wake-lock" allowfullscreen></iframe>', 'Embed code copied');
+      });
+    } else if (it.t === 'reset') {
+      w.innerHTML = '<div class="btns"><button type="button" class="btn" id="btnResetCol">Reset colours</button><button type="button" class="btn" id="btnResetAll">Reset everything</button></div>';
+      w.querySelector('#btnResetCol').addEventListener('click', function () { setVal('theme', 'dark'); });
+      w.querySelector('#btnResetAll').addEventListener('click', function () {
+        if (!window.confirm('Reset all clock settings to the defaults?')) return;
+        S = Object.assign({}, DEFAULTS); save(); apply(); syncSettings();
+      });
+    }
+    return w;
+  }
+
+  function buildSettings() {
+    var body = $('#setBody');
+    SCHEMA.forEach(function (sec) {
+      body.appendChild(el('h3', null, null)).textContent = sec.title;
+      sec.items.forEach(function (it) { body.appendChild(control(it)); });
+    });
+  }
+  function syncSettings() {
+    var nodes = document.querySelectorAll('#setBody [data-k]');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i], k = n.getAttribute('data-k');
+      if (n.tagName === 'BUTTON') n.setAttribute('aria-pressed', String(String(S[k]) === n.getAttribute('data-v')));
+      else if (n.type === 'checkbox') n.checked = !!S[k];
+      else if (document.activeElement !== n) n.value = S[k];
+    }
+  }
+
+  function shareURL() {
+    var p = new URLSearchParams();
+    Object.keys(DEFAULTS).forEach(function (k) {
+      if (S[k] === DEFAULTS[k] || k === 'startedAt') return;
+      if (COLOUR_KEYS.indexOf(k) !== -1 && S.theme !== 'custom') return;
+      var v = S[k];
+      if (typeof v === 'boolean') v = v ? '1' : '0';
+      else if (COLOUR_KEYS.indexOf(k) !== -1) v = String(v).replace('#', '');
+      p.set(k, v);
+    });
+    var q = p.toString();
+    return location.origin + location.pathname + (q ? '?' + q : '');
+  }
+  function copyOut(text, msg) {
+    var out = $('#shareOut'); out.value = text;
+    var fallback = function () { out.focus(); out.select(); toast('Select the text below and copy it (Ctrl+C or ⌘C).'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(msg); }, fallback);
+    else fallback();
+  }
+
+  var drawer = $('#settings'), btnSet = $('#btnSettings');
+  function openSettings(open) {
+    drawer.classList.toggle('open', open);
+    drawer.setAttribute('aria-hidden', String(!open));
+    if (open) drawer.removeAttribute('inert'); else drawer.setAttribute('inert', '');
+    btnSet.setAttribute('aria-expanded', String(open));
+    document.body.classList.toggle('settings-open', open);
+    if (open) { syncSettings(); $('#btnClose').focus(); poke(); }
+  }
+  btnSet.addEventListener('click', function () { openSettings(!drawer.classList.contains('open')); });
+  $('#btnClose').addEventListener('click', function () { openSettings(false); btnSet.focus(); });
+  $('#btnFull').addEventListener('click', toggleFS);
+  $('#viewport').addEventListener('click', function () { if (drawer.classList.contains('open')) openSettings(false); });
+  document.addEventListener('keydown', function (e) {
+    var tag = (e.target && e.target.tagName) || '';
+    if (!dlgWrap.hidden) return;
+    if (e.key === 'Escape' && drawer.classList.contains('open')) { openSettings(false); return; }
+    if (/INPUT|TEXTAREA|SELECT/.test(tag) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 's' || e.key === 'S') { openSettings(!drawer.classList.contains('open')); }
+    else if (e.key === 'f' || e.key === 'F') { toggleFS(); }
+    else if ((e.key === 'e' || e.key === 'E') && S.startBtn) { openExamDlg(); }
+  });
+
+  /* ================= Start exam dialog ================= */
+  var dlgWrap = $('#examDlgWrap'), btnExam = $('#btnExam'), lenH = $('#lenH'), lenM = $('#lenM');
+  var QUICK = [[45, '45 min'], [60, '1 h'], [75, '1 h 15'], [90, '1 h 30'], [105, '1 h 45'], [120, '2 h']];
+  var dlgTimer = null;
+  QUICK.forEach(function (q) {
+    var b = el('button'); b.type = 'button'; b.textContent = q[1]; b.setAttribute('data-len', q[0]);
+    b.addEventListener('click', function () { setLenInputs(q[0]); updatePreview(); });
+    $('#quickLens').appendChild(b);
+  });
+  function clampInt(v, lo, hi) { var n = parseInt(v, 10); return isNaN(n) ? 0 : Math.min(hi, Math.max(lo, n)); }
+  function readLen() { return clampInt(lenH.value, 0, 9) * 60 + clampInt(lenM.value, 0, 59); }
+  function setLenInputs(mins) { lenH.value = Math.floor(mins / 60); lenM.value = mins % 60; }
+  function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function zonedNow() {
+    var real = new Date(), tz = activeTz();
+    return new Date(real.getTime() + (tz ? shiftFor(tz, real) : 0));
+  }
+  function planTimes(len) {
+    var zn = zonedNow(), st = new Date(zn.getTime());
+    st.setSeconds(0, 0);
+    if (st < zn) st = new Date(st.getTime() + 60000);
+    var fi = new Date(st.getTime() + len * 60000);
+    return { now: zn, start: st, finish: fi, rounded: st.getTime() !== zn.getTime(), overnight: fi.getDate() !== st.getDate() };
+  }
+  function runningExam() {
+    if (!S.startedAt || !S.examOn) return null;
+    var zn = zonedNow(), fi = atToday(S.finish, zn), st = atToday(S.start, zn);
+    if (!fi || !st || zn >= fi || st.getTime() - S.startedAt >= 60000 || S.startedAt > st.getTime()) return null;
+    return { start: S.start, finish: S.finish };
+  }
+  function updatePreview() {
+    var len = readLen(), go = $('#exGo'), pv = $('#exPreview');
+    var btns = $('#quickLens').children;
+    for (var i = 0; i < btns.length; i++) btns[i].setAttribute('aria-pressed', String(+btns[i].getAttribute('data-len') === len));
+    if (len < 1) { pv.textContent = 'Enter how long the exam lasts.'; go.disabled = true; return; }
+    var t = planTimes(len);
+    if (t.overnight) { pv.textContent = 'That would finish after midnight. Choose a shorter length.'; go.disabled = true; return; }
+    go.disabled = false;
+    pv.innerHTML = 'Start <strong>' + fmtClock(hhmm(t.start)) + '</strong> &nbsp;→&nbsp; Finish <strong>' + fmtClock(hhmm(t.finish)) + '</strong>';
+    $('#exRoundNote').hidden = !t.rounded;
+  }
+  function openExamDlg() {
+    if (drawer.classList.contains('open')) openSettings(false);
+    setLenInputs(S.examLen);
+    $('#exRemOn').checked = S.startedAt ? S.remainOn : true;
+    var run = runningExam();
+    $('#exRunning').hidden = !run;
+    if (run) $('#exRunTxt').textContent = 'An exam is running from ' + fmtClock(run.start) + ' to ' + fmtClock(run.finish) + '. Starting now will replace these times.';
+    updatePreview();
+    dlgWrap.hidden = false;
+    document.body.classList.add('dlg-open');
+    btnExam.setAttribute('aria-expanded', 'true');
+    clearInterval(dlgTimer); dlgTimer = setInterval(updatePreview, 1000);
+    poke();
+    lenH.focus(); lenH.select();
+  }
+  function closeExamDlg() {
+    if (dlgWrap.hidden) return;
+    dlgWrap.hidden = true;
+    document.body.classList.remove('dlg-open');
+    btnExam.setAttribute('aria-expanded', 'false');
+    clearInterval(dlgTimer);
+    btnExam.focus();
+    poke();
+  }
+  function startExamNow() {
+    var len = readLen();
+    if (len < 1) return;
+    var t = planTimes(len);
+    if (t.overnight) return;
+    S.start = hhmm(t.start); S.finish = hhmm(t.finish); S.startedAt = t.now.getTime();
+    S.examLen = len; S.examOn = true; S.remainOn = $('#exRemOn').checked;
+    flashOffKey = '';
+    sanitise(S); save(); apply(); syncSettings();
+    closeExamDlg();
+    toast('Exam started: ' + fmtClock(S.start) + ' to ' + fmtClock(S.finish));
+  }
+  function clearExam() {
+    S.examOn = false; S.remainOn = false; S.startedAt = 0;
+    save(); apply(); syncSettings();
+    closeExamDlg();
+    toast('Exam times cleared');
+  }
+  btnExam.addEventListener('click', openExamDlg);
+  $('#exDlgClose').addEventListener('click', closeExamDlg);
+  $('#exCancel').addEventListener('click', closeExamDlg);
+  $('#exGo').addEventListener('click', startExamNow);
+  $('#exClear').addEventListener('click', clearExam);
+  dlgWrap.addEventListener('click', function (e) { if (e.target === dlgWrap) closeExamDlg(); });
+  [lenH, lenM].forEach(function (inp) {
+    inp.addEventListener('input', updatePreview);
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); startExamNow(); } });
+  });
+  dlgWrap.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeExamDlg(); return; }
+    if (e.key !== 'Tab') return;
+    var f = Array.prototype.filter.call(dlgWrap.querySelectorAll('button,input'), function (n) { return !n.disabled && n.offsetParent !== null; });
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+
+  /* ================= Auto-hide controls ================= */
+  var idleT;
+  function poke() {
+    document.body.classList.remove('idle');
+    clearTimeout(idleT);
+    idleT = setTimeout(function () { if (!drawer.classList.contains('open') && dlgWrap.hidden) document.body.classList.add('idle'); }, 3000);
+  }
+  ['pointermove', 'pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { window.addEventListener(ev, poke, { passive: true }); });
+
+  /* ================= Start ================= */
+  drawer.setAttribute('inert', '');
+  buildSettings();
+  apply();
+  syncSettings();
+  poke();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
